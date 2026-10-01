@@ -123,6 +123,9 @@ private fun NavBar(tab: Int, onTab: (Int) -> Unit) {
     val tick = rememberTick()
     Column(Modifier.fillMaxWidth().background(n.bg).navigationBarsPadding()) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(n.line))
+        // Each tab is centred in its own equal third, so the labels sit on a regular rhythm and the gaps
+        // between them are identical. Left-aligning them (as an earlier version did) bunched them toward
+        // the start and left a wide empty gap at the end.
         Row(Modifier.fillMaxWidth().padding(horizontal = Space.card, vertical = Space.compact)) {
             listOf("Home", "Servers", "Settings").forEachIndexed { i, l ->
                 val sel = tab == i
@@ -134,7 +137,7 @@ private fun NavBar(tab: Int, onTab: (Int) -> Unit) {
                             indication = null,
                         ) { tick(); onTab(i) }
                         .padding(vertical = 10.dp),
-                    contentAlignment = Alignment.CenterStart,
+                    contentAlignment = Alignment.Center,
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         // Active state is a filled square, the same inversion language as the chips.

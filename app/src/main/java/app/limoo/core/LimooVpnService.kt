@@ -54,7 +54,7 @@ class LimooVpnService : VpnService() {
      * now comes from the dot-grid small icon, flat black background and the server name as the title, and
      * the live counters ride in the standard content text, which cannot fail to inflate.
      */
-    private fun notification(text: String, sub: String? = null): Notification {
+    private fun notification(text: String, sub: String? = null, extra: String? = null): Notification {
         val stop = android.app.PendingIntent.getService(
             this, 0, Intent(this, LimooVpnService::class.java).setAction(ACTION_STOP),
             android.app.PendingIntent.FLAG_IMMUTABLE,
@@ -68,7 +68,8 @@ class LimooVpnService : VpnService() {
         return Notification.Builder(this, "limoo")
             .setSmallIcon(R.drawable.ic_stat)          // dot-grid "L", renders in the status bar
             .setContentTitle(title)                     // current server
-            .setContentText(body)                       // live speed + session total
+            .setContentText(body)                       // live speed
+            .setSubText(extra ?: "")                    // session total, on the template's own second line
             .setColor(0xFF000000.toInt())
             .setColorized(false)
             .setOngoing(true)
@@ -151,7 +152,14 @@ class LimooVpnService : VpnService() {
                 if (lastPost == 0L || elapsed >= 3000L) {
                     lastPost = t; lastDown = now.down
                     runCatching {
-                        nm.notify(1, notification(serverName.value, "${fmtRate(bytesPerSec)}  ${fmtBytes(now.up + now.down)}"))
+                        nm.notify(
+                            1,
+                            notification(
+                                serverName.value,
+                                "${fmtRate(bytesPerSec)} down",
+                                "${fmtBytes(now.up + now.down)} total",
+                            ),
+                        )
                     }
                 }
             }

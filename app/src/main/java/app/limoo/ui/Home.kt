@@ -130,7 +130,10 @@ private fun ConnectRing(state: State, enabled: Boolean, onClick: () -> Unit, mod
         // State is a word, not a dot rendering: the ring is the instrument, the label is plain language.
         Text(
             when (state) { State.Idle -> "Off"; State.Connecting -> "Connecting"; State.Connected -> "On"; State.Error -> "Error" },
-            style = NType.micro, color = if (state == State.Error) n.accent else n.dim,
+            // The state word is the ring's readout, so it is set in the body scale rather than a micro label -
+            // it was too small to read at a glance.
+            style = NType.label.copy(letterSpacing = 1.4.sp),
+            color = if (state == State.Error) n.accent else n.text,
         )
     }
 }

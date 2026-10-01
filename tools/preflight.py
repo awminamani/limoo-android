@@ -194,5 +194,23 @@ for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
         line_no = body[:m.start()].count("\n") + 1
         fail.append(f"{f}:{line_no} @Composable appears twice on one declaration")
 
+# ---- 12. duplicate keys in the dot-matrix glyph table ----
+# The table is built with associate(), which keeps the LAST entry for a duplicate key. A typo'd duplicate
+# line therefore renders the wrong glyph with no compile error - it shipped once as a blank row where a
+# "/" belonged. Fail before it can recur.
+glyph = None
+for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
+    m = re.search(r'private val GLYPHS[^=]*= ""\"(.*?)\"\"', open(f).read(), re.S)
+    if m: glyph = (f, m.group(1)); break
+if glyph is None:
+    fail.append("GLYPHS table not found - expected a triple-quoted glyph table in the ui package")
+else:
+    gf, body = glyph
+    keys = [l.strip()[0] for l in body.strip().splitlines() if l.strip()]
+    dupes = sorted({k for k in keys if keys.count(k) > 1})
+    if dupes:
+        line_no = open(gf).read()[:open(gf).read().index(body)].count("\n") + 1
+        fail.append(f"{gf}:{line_no} GLYPHS has duplicate keys {dupes} - associate() keeps the last, silently")
+
 print("\n".join(fail) if fail else "preflight: all checks passed")
 sys.exit(1 if fail else 0)

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Launcher foreground: the supplied "L" mark, redrawn as a vector.
+
+  Measured from the source artwork (441 x 619 mark box):
+    stem  x 0.000-0.243   from the top down to y 0.56
+          x 0.000-0.168   from y 0.56 to the foot
+    foot  y 0.82-1.00, running right to the mark edge, with a diagonal on the lower left
+  Mapped onto a 108 viewport with the mark centred in the 72dp adaptive-icon safe zone.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- stem, upper section (thicker) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M36,24 L52,24 L52,57 L36,57 Z" />
+    <!-- stem, lower section (narrower, as measured) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M36,57 L47,57 L47,79 L36,79 Z" />
+    <!-- foot with the diagonal lower-left cut -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M36,79 L84,79 L84,88 L47,88 L36,80 Z" />
+</vector>

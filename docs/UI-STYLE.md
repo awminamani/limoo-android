@@ -161,6 +161,14 @@ renders `BusyRow` and disables the confirm button.
   does not resolve). Import it.
 - A class may declare only **one** companion object.
 - A Kotlin property already generates its `setX` accessor — do not also declare `fun setX`.
+- **The GLYPHS table is built with `associate()`, which keeps the LAST entry for a duplicate key.** A
+  typo'd duplicate line therefore renders the wrong glyph with no compile error — a stray `/ 0 0 0 0 0 0 0`
+  shipped a blank row where the "/" belonged, and it read as a garbled character after the speed figures.
+  Preflight check 12 fails on any duplicate key. Never add a glyph without checking the key is unused.
+- Notification text: the template's `setContentText` is one cramped line. Use `setSubText` for the second
+  stat rather than packing both into one string.
+- The status-bar icon is a flat silhouette — Android tints it and discards colour, so only the letterform
+  survives. Do not try to put fine detail in it.
 
 ## 7. Pre-flight
 
