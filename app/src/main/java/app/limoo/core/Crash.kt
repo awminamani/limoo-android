@@ -14,29 +14,28 @@ import java.io.File
 object Crash {
     private const val FILE = "last_crash.txt"
     private const val MAX = 4000
-
-    fun log(where: String, t: Throwable?) {
-        try {
-            val ctx = appContext ?: return
-            val text = buildString {
-                append(android.os.System.currentTimeMillis()).append("  ").append(where).append('
-')
-                if (t != null) {
-                    append(t.javaClass.name).append(": ").append(t.message ?: "").append('
-')
-                    append(Log.getStackTraceString(t).take(MAX)).append('
-')
-                }
-            }
-            File(ctx.filesDir, FILE).appendText(text)
-        } catch (ignored: Throwable) { /* a crash logger must never itself crash */ }
-    }
+    private const val NL = "\n"
 
     /** Set by the Application so helpers can log without a Context. */
     @Volatile var appContext: Context? = null
 
+    fun log(where: String, t: Throwable?) {
+        try {
+            val ctx = appContext ?: return
+            val sb = StringBuilder()
+            sb.append(System.currentTimeMillis()).append("  ").append(where).append(NL)
+            if (t != null) {
+                sb.append(t.javaClass.name).append(": ").append(t.message ?: "").append(NL)
+                sb.append(Log.getStackTraceString(t).take(MAX)).append(NL)
+            }
+            File(ctx.filesDir, FILE).appendText(sb.toString())
+        } catch (ignored: Throwable) {
+            // A crash logger must never itself crash.
+        }
+    }
+
     fun last(): String? = try {
-        appContext?.let { File(it.filesDir, FILE).takeIf { f -> f.length() > 0 }?.readText()?.takeLast(MAX) }
+        appContext?.let { ctx -> File(ctx.filesDir, FILE).takeIf { it.length() > 0 }?.readText()?.takeLast(MAX) }
     } catch (t: Throwable) { null }
 
     fun clear() { runCatching { appContext?.let { File(it.filesDir, FILE).delete() } } }

@@ -129,5 +129,15 @@ for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
     if n > 1:
         fail.append(f"{f}: {n} companion objects (only one is allowed)")
 
+# ---- 8. char literals must not contain a raw newline ----
+# Python-style escaping mistakes turn '\n' into a literal line break inside Kotlin char literals, which
+# is a syntax error that only shows up on the CI compiler.
+for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
+    for i, line in enumerate(open(f), 1):
+        if line.rstrip("\n").endswith("'"):
+            stripped = strip_comments(line)
+            if stripped.count("'") % 2 == 1:
+                fail.append(f"{f}:{i} unterminated char literal (a raw newline inside quotes)")
+
 print("\n".join(fail) if fail else "preflight: all checks passed")
 sys.exit(1 if fail else 0)
