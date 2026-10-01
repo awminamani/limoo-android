@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
@@ -85,7 +86,7 @@ fun LimooRoot(
             }
             AnimatedVisibility(busy != null) {
                 busy?.let { label ->
-                    NBusy(label, Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+                    BusyRow(label, Modifier.padding(horizontal = Space.card, vertical = Space.compact))
                 }
             }
             Box(Modifier.weight(1f)) {
@@ -95,7 +96,7 @@ fun LimooRoot(
                     else -> SettingsScreen(store, a)
                 }
             }
-            if (!imeUp) NavPill(tab) { tab = it }
+            if (!imeUp) NavBar(tab) { tab = it }
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 84.dp, start = 24.dp, end = 24.dp)) { d ->
             Snackbar(d, shape = CircleShape, containerColor = n.text, contentColor = n.onText, actionColor = n.accent)
@@ -111,16 +112,46 @@ fun LimooRoot(
     preview?.let { ImportSheet(it, existingKeys, a, onDismissPreview, busy != null) }
 }
 
+/**
+ * Navigation as a hairline-ruled bar, not a floating pill. The spec calls out giant floating nav pills as an
+ * anti-pattern on mobile: navigation should read as part of the information system. A top hairline, three
+ * left-aligned labels, and inversion for the active tab.
+ */
 @Composable
-private fun NavPill(tab: Int, onTab: (Int) -> Unit) {
-    val n = LocalN.current; val tick = rememberTick()
-    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 24.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
-        Row(Modifier.clip(CircleShape).background(n.surface).border(1.dp, n.line, CircleShape).padding(4.dp)) {
-            listOf("HOME", "SERVERS", "SETTINGS").forEachIndexed { i, l ->
+private fun NavBar(tab: Int, onTab: (Int) -> Unit) {
+    val n = LocalN.current
+    val tick = rememberTick()
+    Column(Modifier.fillMaxWidth().background(n.bg).navigationBarsPadding()) {
+        Box(Modifier.fillMaxWidth().height(1.dp).background(n.line))
+        Row(Modifier.fillMaxWidth().padding(horizontal = Space.card, vertical = Space.compact)) {
+            listOf("Home", "Servers", "Settings").forEachIndexed { i, l ->
                 val sel = tab == i
                 Box(
-                    Modifier.clip(CircleShape).background(if (sel) n.text else Color.Transparent).clickable { tick(); onTab(i) }.padding(horizontal = 18.dp, vertical = 11.dp),
-                ) { Text(l, style = NType.label, color = if (sel) n.onText else n.dim) }
+                    Modifier
+                        .weight(1f)
+                        .clickable(
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            indication = null,
+                        ) { tick(); onTab(i) }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Active state is a filled square, the same inversion language as the chips.
+                        Box(
+                            Modifier.size(6.dp).background(
+                                if (sel) n.text else n.line,
+                                RoundedCornerShape(1.dp),
+                            ),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            l,
+                            style = NType.label,
+                            color = if (sel) n.text else n.muted,
+                        )
+                    }
+                }
             }
         }
     }
@@ -129,18 +160,24 @@ private fun NavPill(tab: Int, onTab: (Int) -> Unit) {
 @Composable
 private fun ClipBanner(o: ImportPreview, onImport: () -> Unit, onDismiss: () -> Unit) {
     val n = LocalN.current
-    NCard(Modifier.padding(horizontal = 20.dp, vertical = 8.dp).fillMaxWidth(), radius = 24.dp) {
-        Row(Modifier.padding(start = 18.dp, end = 6.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(8.dp).clip(CircleShape).background(n.accent)); Spacer(Modifier.width(12.dp))
+    NCard(Modifier.padding(horizontal = Space.card, vertical = Space.compact).fillMaxWidth()) {
+        Row(Modifier.padding(start = Space.standard, end = Space.compact, top = Space.small, bottom = Space.small), verticalAlignment = Alignment.CenterVertically) {
+            SignalDot(true, Modifier.size(5.dp))
+            Spacer(Modifier.width(Space.small))
             Column(Modifier.weight(1f)) {
-                NLabel("IN CLIPBOARD")
+                NLabel("In clipboard")
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    when { o.needsPassword -> "Encrypted .limoo file"; o.servers.size == 1 -> o.servers[0].name; else -> "${o.servers.size} servers" },
-                    style = NType.body, color = n.text, maxLines = 1,
+                    when {
+                        o.needsPassword -> "Encrypted .limoo file"
+                        o.servers.size == 1 -> o.servers[0].name
+                        else -> "${o.servers.size} servers"
+                    },
+                    style = NType.body, color = n.text, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
             }
-            NButton(if (o.needsPassword || o.subUrls.isNotEmpty()) "OPEN" else "IMPORT", onImport, primary = true, compact = true)
-            IconButton(onDismiss) { Icon(Icons.Default.Close, "Dismiss", tint = n.dim) }
+            NButton(if (o.needsPassword || o.subUrls.isNotEmpty()) "Open" else "Import", onImport, primary = true, compact = true)
+            TextButton(onDismiss) { Text("Dismiss", style = NType.micro, color = n.muted) }
         }
     }
 }

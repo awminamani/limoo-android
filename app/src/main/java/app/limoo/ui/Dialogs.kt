@@ -57,7 +57,7 @@ fun ServerEditor(initial: Server?, onSave: (Server) -> Unit, onDismiss: () -> Un
             Column(Modifier.statusBarsPadding().navigationBarsPadding()) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     NButton("BACK", onDismiss, compact = true); Spacer(Modifier.width(12.dp))
-                    DotText(if (initial == null) "NEW" else "EDIT", dot = 3.dp, gap = 1.5.dp); Spacer(Modifier.weight(1f))
+                    Text(if (initial == null) "New server" else "Edit server", style = NType.title, color = LocalN.current.text); Spacer(Modifier.weight(1f))
                     NButton("SAVE", { onSave(s) }, primary = true, enabled = problem.isEmpty(), compact = true)
                 }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 8.dp)) {

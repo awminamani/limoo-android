@@ -151,5 +151,26 @@ for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
             if stripped.count("'") % 2 == 1:
                 fail.append(f"{f}:{i} unterminated char literal (a raw newline inside quotes)")
 
+# ---- 9. no references to components that were removed in the re-skin ----
+# The v0.8 re-skin replaced the dot-centric component set. A screen still calling a deleted composable is
+# a compile error; catch it here rather than on CI.
+REMOVED = ["DotText", "DotTextFixed", "DotBar", "NDots", "NBusy", "NBusyBlock",
+           "NReadout", "NGlyph", "NFadeDots", "NDotsProgress", "NBrackets", "NavPill"]
+for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
+    body = strip_comments(open(f).read())
+    if f.endswith("Nothing.kt") or f.endswith("Tokens.kt"): continue
+    for name in REMOVED:
+        for m in re.finditer(r"(?<![A-Za-z0-9_.])" + name + r"\s*\(", body):
+            line_no = body[:m.start()].count("\n") + 1
+            fail.append(f"{f}:{line_no} calls removed component {name}()")
+
+# ---- 10. the spec's rule: no huge radii on content containers ----
+for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
+    body = strip_comments(open(f).read())
+    for m in re.finditer(r"radius\s*=\s*(\d+)dp", body):
+        if int(m.group(1)) > 16:
+            line_no = body[:m.start()].count("\n") + 1
+            fail.append(f"{f}:{line_no} radius {m.group(1)}dp - spec caps content radii at 12dp")
+
 print("\n".join(fail) if fail else "preflight: all checks passed")
 sys.exit(1 if fail else 0)

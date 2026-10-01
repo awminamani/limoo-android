@@ -49,12 +49,14 @@ private fun ServerRow(
         backgroundContent = {
             val toEnd = dismiss.dismissDirection == SwipeToDismissBoxValue.StartToEnd
             Box(Modifier.fillMaxSize().padding(horizontal = 26.dp), contentAlignment = if (toEnd) Alignment.CenterStart else Alignment.CenterEnd) {
-                if (dismiss.dismissDirection != SwipeToDismissBoxValue.Settled) NLabel(if (toEnd) (if (s.fav) "UNFAVORITE" else "FAVORITE") else "DELETE", color = if (toEnd) n.text else n.accent)
+                if (dismiss.dismissDirection != SwipeToDismissBoxValue.Settled) {
+                    NLabel(if (toEnd) (if (s.fav) "Unfavorite" else "Favorite") else "Delete", color = if (toEnd) n.text else n.accent)
+                }
             }
         },
     ) {
-        NCard(Modifier.fillMaxWidth(), onClick = onClick, onLongClick = onLong, highlight = picked, radius = 24.dp) {
-            Row(Modifier.padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        NCard(Modifier.fillMaxWidth(), onClick = onClick, onLongClick = onLong, highlight = picked) {
+            Row(Modifier.padding(start = Space.standard, end = Space.micro, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (selecting) NCheck(picked) else NRadio(active)
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
@@ -67,11 +69,12 @@ private fun ServerRow(
                 Column(horizontalAlignment = Alignment.End) {
                     DotMeter(s.pingMs, testing)
                     Text(
-                        when { testing -> "..."; s.pingMs > 0 -> "${s.pingMs}"; s.pingMs == 0L -> "TIMEOUT"; else -> "" }, style = NType.label,
-                        color = if (s.pingMs == 0L) n.accent else n.dim, modifier = Modifier.padding(top = 4.dp),
+                        when { testing -> "..."; s.pingMs > 0 -> "${s.pingMs} ms"; s.pingMs == 0L -> "Timeout"; else -> "" },
+                        style = NType.micro,
+                        color = if (s.pingMs == 0L) n.accent else n.muted, modifier = Modifier.padding(top = 5.dp),
                     )
                 }
-                if (!selecting) NDots(onMenu) else Spacer(Modifier.width(12.dp))
+                if (!selecting) MenuMark(onMenu) else Spacer(Modifier.width(Space.small))
             }
         }
     }
@@ -118,24 +121,27 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit, busy: String? = n
         Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
             Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (selecting) {
-                    DotText("${picked.size} SEL", dot = 3.dp, gap = 1.5.dp); Spacer(Modifier.weight(1f))
-                    NButton("ALL", { picked = visible.map { it.id }.toSet() }, compact = true); Spacer(Modifier.width(8.dp))
-                    NButton("DONE", { picked = emptySet() }, primary = true, compact = true)
+                    Text("${picked.size} selected", style = NType.title, color = n.text); Spacer(Modifier.weight(1f))
+                    NButton("All", { picked = visible.map { it.id }.toSet() }, compact = true); Spacer(Modifier.width(Space.compact))
+                    NButton("Done", { picked = emptySet() }, primary = true, compact = true)
                 } else {
-                    DotText("SERVERS", dot = 3.dp, gap = 1.5.dp); Spacer(Modifier.width(10.dp)); NLabel("${servers.size}"); Spacer(Modifier.weight(1f))
-                    NButton(if (st.realPing) "PING" else "TCP", { scope.launch { store.pingAll(visible.map { it.id }, real = st.realPing) } }, compact = true); Spacer(Modifier.width(8.dp))
-                    NButton("MORE", { moreOpen = true }, compact = true)
+                    Text("Servers", style = NType.display, color = n.text)
+                    Spacer(Modifier.width(Space.compact))
+                    NLabel("${servers.size}")
+                    Spacer(Modifier.weight(1f))
+                    NButton(if (st.realPing) "Ping" else "TCP", { scope.launch { store.pingAll(visible.map { it.id }, real = st.realPing) } }, compact = true); Spacer(Modifier.width(Space.compact))
+                    NButton("Tools", { moreOpen = true }, compact = true)
                 }
             }
             if (refreshingSubs || busy != null) {
-                NBusy(busy ?: "UPDATING SUBSCRIPTIONS"); Spacer(Modifier.height(4.dp))
+                BusyRow(busy ?: "Updating subscriptions"); Spacer(Modifier.height(4.dp))
             }
             // Subscription allowances (data used / total, days left) stay pinned here instead of only inside
             // group headers, where they disappeared as soon as the user searched or changed the sort.
             if (subs.any { it.total > 0 || it.expire > 0 }) {
-                NCard(Modifier.fillMaxWidth().padding(top = 10.dp), radius = 22.dp) {
-                    Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-                        NLabel("SUBSCRIPTION")
+                NCard(Modifier.fillMaxWidth().padding(top = Space.compact)) {
+                    Column(Modifier.padding(Space.standard)) {
+                        NLabel("Subscription")
                         subs.filter { it.total > 0 || it.expire > 0 }.forEachIndexed { i, s ->
                             if (i > 0) NDivider()
                             SubAllowance(
@@ -150,25 +156,25 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit, busy: String? = n
             Spacer(Modifier.height(12.dp))
             NSearch(query, { query = it })
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NChip("ALL ${servers.size}", filter == "ALL") { filter = "ALL" }
-                if (servers.any { it.fav }) NChip("FAVORITES", filter == "FAV") { filter = "FAV" }
+                NChip("All ${servers.size}", filter == "ALL") { filter = "ALL" }
+                if (servers.any { it.fav }) NChip("Favorites", filter == "FAV") { filter = "FAV" }
                 groups.forEach { g -> NChip(g, filter == g) { filter = if (filter == g) "ALL" else g } }
             }
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 150.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (visible.isEmpty()) item("empty") {
-                    Column(Modifier.fillMaxWidth().padding(vertical = 48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        DotText(if (servers.isEmpty()) "EMPTY" else "NO MATCH", dot = 4.dp, gap = 2.dp)
-                        Text(if (servers.isEmpty()) "Nothing here yet." else "Try another search or filter.", style = NType.body, color = n.dim, modifier = Modifier.padding(top = 16.dp, bottom = 16.dp))
-                        if (servers.isEmpty()) NButton("ADD SERVERS", onAdd, primary = true)
+                    Column(Modifier.fillMaxWidth().padding(vertical = Space.hero), horizontalAlignment = Alignment.CenterHorizontally) {
+                        DotField(Modifier.size(width = 120.dp, height = 68.dp))
+                        Text(if (servers.isEmpty()) "Nothing here yet." else "Try another search or filter.", style = NType.body, color = n.dim, modifier = Modifier.padding(top = Space.standard, bottom = Space.standard))
+                        if (servers.isEmpty()) NButton("Add servers", onAdd, primary = true)
                     }
                 }
                 sections.forEach { (g, list) ->
                     if (grouped) item("h:$g") {
                         val sub = store.subs.value.firstOrNull { it.name == g }
-                        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { collapsed = if (g in collapsed) collapsed - g else collapsed + g }.padding(top = 12.dp, bottom = 4.dp, start = 6.dp, end = 6.dp)) {
+                        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(Radius.control)).clickable { collapsed = if (g in collapsed) collapsed - g else collapsed + g }.padding(top = 12.dp, bottom = 4.dp, start = 6.dp, end = 6.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                NLabel((if (g.isEmpty()) "MY SERVERS" else g) + "  " + list.size, Modifier.weight(1f))
-                                NLabel(if (g in collapsed) "SHOW" else "HIDE")
+                                NLabel(g.ifEmpty { "My servers" }, Modifier.weight(1f))
+                                NLabel("${list.size}")
                             }
                             // Data left / days left for this subscription, when the provider reports it.
                             if (sub != null && (sub.total > 0 || sub.expire > 0)) {
@@ -176,8 +182,8 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit, busy: String? = n
                                 val days = (sub.expire - System.currentTimeMillis() / 1000) / 86_400L
                                 Row(Modifier.padding(top = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                                     if (sub.total > 0) {
-                                        DotBar(used.toFloat() / sub.total, Modifier.weight(1f).padding(end = 10.dp), count = 16)
-                                        NLabel("${fmtBytesShort(used)}/${fmtBytesShort(sub.total)}")
+                                        SegmentedBar(used.toFloat() / sub.total, Modifier.weight(1f).padding(end = Space.small), segments = 14, height = 5.dp)
+                                        NLabel("${fmtShort(used)}/${fmtShort(sub.total)}")
                                     } else Spacer(Modifier.weight(1f))
                                     if (sub.expire > 0) NLabel(
                                         when { days < 0 -> "EXPIRED"; days == 0L -> "ENDS TODAY"; else -> "${days}D LEFT" },
@@ -206,10 +212,10 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit, busy: String? = n
                     .horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                NButton("FAV", { store.toggleFav(picked) }, compact = true)
-                NButton("PING", { val ids = picked; scope.launch { store.pingAll(ids, real = st.realPing) } }, compact = true)
-                NButton("SHARE", { shareList = servers.filter { it.id in picked } }, compact = true)
-                NButton("GROUP", { groupFor = picked }, compact = true)
+                NButton("Favorite", { store.toggleFav(picked) }, compact = true)
+                NButton("Ping", { val ids = picked; scope.launch { store.pingAll(ids, real = st.realPing) } }, compact = true)
+                NButton("Share", { shareList = servers.filter { it.id in picked } }, compact = true)
+                NButton("Group", { groupFor = picked }, compact = true)
                 NButton("DELETE", { deleteWithUndo(picked); picked = emptySet() }, danger = true, compact = true)
             }
         } else {
@@ -229,26 +235,28 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit, busy: String? = n
             SheetRow("QR code") { rowMenu = null; qr = s }
             SheetRow("Copy link") { rowMenu = null; copyLink(s) }
             SheetRow("Share as .limoo") { rowMenu = null; shareList = listOf(s) }
-            SheetRow(if (st.realPing) "Test real delay" else "Test latency") { rowMenu = null; scope.launch { store.pingAll(listOf(s.id), real = st.realPing) } }
+            SheetRow(if (st.realPing) "Test real delay" else "Test TCP latency") { rowMenu = null; scope.launch { store.pingAll(listOf(s.id), real = st.realPing) } }
             SheetRow("Move to group") { rowMenu = null; groupFor = setOf(s.id) }
             SheetRow("Delete", danger = true) { rowMenu = null; deleteWithUndo(setOf(s.id)) }
         }
     }
 
     if (moreOpen) NSheet({ moreOpen = false }) {
-        NLabel("SERVER TOOLS", Modifier.padding(bottom = 6.dp))
+        NLabel("Tools")
+        Spacer(Modifier.height(Space.compact))
         SheetRow("Select best server", if (st.realPing) "REAL DELAY - SLOWER" else "TCP LATENCY") { moreOpen = false; scope.launch { store.autoSelectBest(real = st.realPing); Ui.say("BEST SERVER SELECTED") } }
-        SheetRow("Sort", st.sortBy.uppercase()) { moreOpen = false; sortOpen = true }
+        SheetRow("Sort", st.sortBy) { moreOpen = false; sortOpen = true }
         SheetRow("Update subscriptions") { moreOpen = false; refreshingSubs = true; scope.launch { store.refreshAll(force = true); refreshingSubs = false; Ui.say("SUBSCRIPTIONS UPDATED") } }
         SheetRow("Manage subscriptions") { moreOpen = false; subsOpen = true }
         SheetRow("Select all") { moreOpen = false; picked = servers.map { it.id }.toSet() }
         SheetRow("Remove duplicates") { moreOpen = false; val c = store.removeDuplicates(); Ui.say(if (c == 0) "NO DUPLICATES" else "REMOVED $c") }
-        SheetRow("Remove unreachable", "TIMED OUT IN LAST PING") { moreOpen = false; val c = store.removeDead(); Ui.say(if (c == 0) "NOTHING TO REMOVE" else "REMOVED $c") }
+        SheetRow("Remove unreachable", "timed out in last ping") { moreOpen = false; val c = store.removeDead(); Ui.say(if (c == 0) "NOTHING TO REMOVE" else "REMOVED $c") }
         SheetRow("Delete all servers", danger = true) { moreOpen = false; confirmWipe = true }
     }
 
     if (sortOpen) NSheet({ sortOpen = false }) {
-        NLabel("SORT BY", Modifier.padding(bottom = 6.dp))
+        NLabel("Sort by")
+        Spacer(Modifier.height(Space.compact))
         listOf("manual" to "MANUAL (FAVORITES FIRST)", "ping" to "LATENCY", "name" to "NAME", "recent" to "RECENTLY USED").forEach { (k, l) ->
             SheetRow(l, highlight = st.sortBy == k) { store.update { it.copy(sortBy = k) }; sortOpen = false }
         }
@@ -257,22 +265,22 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit, busy: String? = n
     groupFor?.let { ids ->
         var g by remember { mutableStateOf("") }
         NSheet({ groupFor = null }) {
-            NLabel("MOVE ${ids.size} TO GROUP")
+            NLabel("Move ${ids.size} to group")
             NField("NEW GROUP NAME", g, { g = it }, placeholder = "e.g. Work")
             if (groups.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { groups.forEach { x -> NChip(x, g == x) { g = x } } }
             Row(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                NButton("NO GROUP", { store.moveToGroup(ids, ""); groupFor = null; picked = emptySet() }, Modifier.weight(1f))
-                NButton("MOVE", { store.moveToGroup(ids, g.trim()); groupFor = null; picked = emptySet() }, Modifier.weight(1f), primary = true, enabled = g.isNotBlank())
+                NButton("No group", { store.moveToGroup(ids, ""); groupFor = null; picked = emptySet() }, Modifier.weight(1f))
+                NButton("Move", { store.moveToGroup(ids, g.trim()); groupFor = null; picked = emptySet() }, Modifier.weight(1f), primary = true, enabled = g.isNotBlank())
             }
         }
     }
 
     if (confirmWipe) NSheet({ confirmWipe = false }) {
-        NLabel("DELETE ALL ${servers.size} SERVERS?")
+        NLabel("Delete all ${servers.size} servers?")
         Text("You can undo right after.", style = NType.body, color = n.dim, modifier = Modifier.padding(vertical = 12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            NButton("CANCEL", { confirmWipe = false }, Modifier.weight(1f))
-            NButton("DELETE ALL", { confirmWipe = false; deleteWithUndo(servers.map { it.id }.toSet()) }, Modifier.weight(1f), danger = true)
+            NButton("Cancel", { confirmWipe = false }, Modifier.weight(1f))
+            NButton("Delete all", { confirmWipe = false; deleteWithUndo(servers.map { it.id }.toSet()) }, Modifier.weight(1f), danger = true)
         }
     }
 

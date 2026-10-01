@@ -18,17 +18,20 @@ import app.limoo.model.AppSettings
 import kotlinx.coroutines.launch
 
 @Composable
-private fun Group(content: @Composable ColumnScope.() -> Unit) = NCard(Modifier.fillMaxWidth().padding(vertical = 6.dp), content = content)
+/** Settings groups: a hairline-bordered block, 8dp radius. Rows inside are separated by hairlines. */
+@Composable
+private fun Group(content: @Composable ColumnScope.() -> Unit) =
+    NCard(Modifier.fillMaxWidth().padding(bottom = Space.compact), content = content)
 
 @Composable
 private fun Page(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
-        Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            NButton("BACK", onBack, compact = true); Spacer(Modifier.width(14.dp))
-            // Bounded + auto-scaling: long page titles shrink to fit instead of running off screen.
-            Box(Modifier.weight(1f)) { DotText(title, dot = 3.dp, gap = 1.5.dp, maxWidth = 190.dp) }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Space.card)) {
+        Row(Modifier.fillMaxWidth().padding(top = Space.standard, bottom = Space.compact), verticalAlignment = Alignment.CenterVertically) {
+            NButton("Back", onBack, compact = true)
+            Spacer(Modifier.width(Space.standard))
+            Text(title, style = NType.title, color = LocalN.current.text, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         }
-        content(); Spacer(Modifier.height(24.dp))
+        content(); Spacer(Modifier.height(Space.section))
     }
 }
 
@@ -39,10 +42,13 @@ fun GeoCard(store: Store) {
     val ready = remember(p.running) { GeoManager.ready(ctx) }
     Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp)) {
         NLabel("STATUS")
-        Text(when { p.running -> "Downloading ${p.file}  ${p.percent}%"; ready -> "Ready - ${GeoManager.ageDays(ctx)} days old"; else -> "Missing" }, style = NType.mono, color = n.text, modifier = Modifier.padding(top = 4.dp))
-        if (p.running) DotBar(p.percent / 100f, Modifier.padding(top = 10.dp))
+        Text(
+            when { p.running -> "Downloading ${p.file}"; ready -> "Ready · ${GeoManager.ageDays(ctx)} days old"; else -> "Not downloaded" },
+            style = NType.body, color = n.text, modifier = Modifier.padding(top = Space.micro),
+        )
+        if (p.running) SegmentedBar(p.percent / 100f, Modifier.padding(top = Space.small))
         p.error?.let { Text(it, style = NType.mono, color = n.accent, modifier = Modifier.padding(top = 6.dp)) }
-        if (!p.running) NButton(if (ready) "UPDATE NOW" else "DOWNLOAD", { scope.launch { GeoManager.forceUpdate(ctx, st.geoSource) } }, Modifier.padding(top = 12.dp), compact = true)
+        if (!p.running) NButton(if (ready) "Update now" else "Download", { scope.launch { GeoManager.forceUpdate(ctx, st.geoSource) } }, Modifier.padding(top = Space.standard), compact = true)
     }
 }
 
@@ -54,22 +60,23 @@ fun SettingsScreen(store: Store, a: Actions) {
     fun upd(f: (AppSettings) -> AppSettings) = store.update(f)
     BackHandler(page.isNotEmpty()) { page = "" }
 
+    val n = LocalN.current
     when (page) {
-        "" -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
-            Box(Modifier.padding(top = 12.dp, bottom = 12.dp)) { DotText("SETTINGS", dot = 3.dp, gap = 1.5.dp) }
+        "" -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Space.card)) {
+            Text("Settings", style = NType.display, color = n.text, modifier = Modifier.padding(top = Space.standard, bottom = Space.compact))
             Group {
-                NRow("Connection", "${st.mode} - ${if (st.autoConnect) "auto-connect" else "manual"}", { page = "conn" }) { NLabel(">") }; NDivider()
-                NRow("Routing", st.routingPreset.removePrefix("bypass").ifEmpty { "all" }, { page = "route" }) { NLabel(">") }; NDivider()
-                NRow("DNS", "", { page = "dns" }) { NLabel(">") }; NDivider()
-                NRow("Advanced", "fragment - mux - logs", { page = "adv" }) { NLabel(">") }
+                NRow("Connection", "${st.mode} · ${if (st.autoConnect) "auto-connect" else "manual"}", { page = "conn" }) { Text("›", style = NType.body, color = n.muted) }; NDivider()
+                NRow("Routing", st.routingPreset.removePrefix("bypass").ifEmpty { "all" }, { page = "route" }) { Text("›", style = NType.body, color = n.muted) }; NDivider()
+                NRow("DNS", "", { page = "dns" }) { Text("›", style = NType.body, color = n.muted) }; NDivider()
+                NRow("Advanced", "fragment · mux · logs", { page = "adv" }) { Text("›", style = NType.body, color = n.muted) }
             }
             Group {
-                NRow("Per-app proxy", if (st.perAppMode == "off") "off" else "${st.perAppMode} - ${st.perApp.size} apps", { page = "apps" }) { NLabel(">") }; NDivider()
-                NRow("Routing data", "geoip - geosite", { page = "geo" }) { NLabel(">") }
+                NRow("Per-app proxy", if (st.perAppMode == "off") "off" else "${st.perAppMode} · ${st.perApp.size} apps", { page = "apps" }) { Text("›", style = NType.body, color = n.muted) }; NDivider()
+                NRow("Routing data", "geoip · geosite", { page = "geo" }) { Text("›", style = NType.body, color = n.muted) }
             }
             Group {
-                NRow("Appearance", "${st.theme} - ${st.accent}", { page = "look" }) { NLabel(">") }; NDivider()
-                NRow("Backup and about", "", { page = "about" }) { NLabel(">") }
+                NRow("Appearance", "${st.theme} · ${st.accent}", { page = "look" }) { Text("›", style = NType.body, color = n.muted) }; NDivider()
+                NRow("Backup and about", "", { page = "about" }) { Text("›", style = NType.body, color = n.muted) }
             }
             Spacer(Modifier.height(24.dp))
         }
@@ -95,7 +102,7 @@ fun SettingsScreen(store: Store, a: Actions) {
                 ChoiceRow("Preset", listOf("global", "bypassIran", "bypassChina", "bypassRussia"), st.routingPreset) { v -> upd { it.copy(routingPreset = v) } }; NDivider()
                 ToggleRow("Block ads", st.blockAds) { v -> upd { it.copy(blockAds = v) } }
             }
-            NLabel("ONE PER LINE: DOMAIN:X.COM - FULL:X.COM - KEYWORD:X - GEOSITE:GOOGLE - GEOIP:IR - 1.2.3.0/24", Modifier.padding(vertical = 8.dp, horizontal = 6.dp))
+            Text("One per line: domain:x.com · full:x.com · keyword:x · geosite:google · geoip:ir · 1.2.3.0/24", style = NType.bodySmall, color = n.muted, modifier = Modifier.padding(vertical = Space.compact))
             Group {
                 FieldRow("Always proxy", st.proxyRules, multiline = true) { v -> upd { it.copy(proxyRules = v) } }
                 FieldRow("Always direct", st.directRules, multiline = true) { v -> upd { it.copy(directRules = v) } }
@@ -128,7 +135,7 @@ fun SettingsScreen(store: Store, a: Actions) {
         "apps" -> Page("APPS", { page = "" }) {
             Group {
                 ChoiceRow("Mode", listOf("off", "allow", "deny"), st.perAppMode) { v -> upd { it.copy(perAppMode = v) } }
-                if (st.perAppMode != "off") { NDivider(); NRow("Choose apps", "${st.perApp.size} selected", { picking = true }) { NLabel(">") } }
+                if (st.perAppMode != "off") { NDivider(); NRow("Choose apps", "${st.perApp.size} selected", { picking = true }) }
             }
             NLabel(when (st.perAppMode) { "allow" -> "ONLY SELECTED APPS USE THE VPN"; "deny" -> "SELECTED APPS BYPASS THE VPN"; else -> "ALL APPS USE THE VPN" }, Modifier.padding(6.dp))
         }
@@ -152,23 +159,23 @@ fun SettingsScreen(store: Store, a: Actions) {
         }
         else -> Page("BACKUP", { page = "" }) {
             Group {
-                NRow("Export backup", "SERVERS - SUBSCRIPTIONS - SETTINGS", a.exportBackup) { NLabel(">") }; NDivider()
-                NRow("Restore from file", "OPENS THE IMPORT PREVIEW", a.pickFile) { NLabel(">") }; NDivider()
-                NRow("Reset settings", "SERVERS ARE KEPT", { confirmReset = true }) { NLabel(">") }
+                NRow("Export backup", "servers · subscriptions · settings", a.exportBackup) { Text("›", style = NType.body, color = n.muted) }; NDivider()
+                NRow("Restore from file", "opens the import preview", a.pickFile) { Text("›", style = NType.body, color = n.muted) }; NDivider()
+                NRow("Reset settings", "servers are kept", { confirmReset = true }) { Text("›", style = NType.body, color = n.muted) }
             }
             Group {
-                NRow("Limoo", "VERSION 0.2.0") {}; NDivider()
-                NRow("Core", "XRAY VIA LIBV2RAY") {}
+                NRow("Limoo", "version 0.3.0") {}; NDivider()
+                NRow("Core", "Xray via libv2ray") {}
             }
         }
     }
 
     if (picking) AppPickerDialog(st.perApp, { l -> upd { it.copy(perApp = l) }; picking = false }, { picking = false })
     if (confirmReset) NSheet({ confirmReset = false }) {
-        NLabel("RESET ALL SETTINGS?")
+        NLabel("Reset all settings?")
         Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            NButton("CANCEL", { confirmReset = false }, Modifier.weight(1f))
-            NButton("RESET", { upd { AppSettings() }; confirmReset = false; Ui.say("SETTINGS RESET") }, Modifier.weight(1f), danger = true)
+            NButton("Cancel", { confirmReset = false }, Modifier.weight(1f))
+            NButton("Reset", { upd { AppSettings() }; confirmReset = false; Ui.say("Settings reset") }, Modifier.weight(1f), danger = true)
         }
     }
 }

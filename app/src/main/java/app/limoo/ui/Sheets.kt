@@ -51,7 +51,7 @@ fun SubFormSheet(initial: Subscription?, onDismiss: () -> Unit, onSave: (name: S
         NField("NAME (OPTIONAL)", name, { name = it })
         if (initial != null) ToggleRow("Auto-update", auto) { auto = it }
         val ok = url.startsWith("http")
-        if (initial == null && ok) NBusy("FETCHES ON SAVE", detail = "SUBSCRIPTION")
+        if (initial == null && ok) BusyRow("Fetches on save")
         NButton(if (initial == null) "ADD AND FETCH" else "SAVE", { onSave(name.trim(), url, auto); onDismiss() }, Modifier.fillMaxWidth().padding(top = 14.dp), primary = true, enabled = ok)
     }
 }
@@ -84,12 +84,12 @@ fun SubsSheet(store: Store, onDismiss: () -> Unit) {
         if (subs.isEmpty()) Text("No subscriptions yet. Add a link and Limoo keeps the list fresh.", style = NType.body, color = n.dim, modifier = Modifier.padding(vertical = 20.dp))
         LazyColumn(Modifier.heightIn(max = 460.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(subs, key = { it.id }) { s ->
-                NCard(Modifier.fillMaxWidth(), radius = 22.dp) {
+                NCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp)) {
                         Text(s.name, style = NType.body, color = n.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         NLabel("${servers.count { it.subId == s.id }} SERVERS - ${ago(s.updatedAt)}", Modifier.padding(top = 3.dp))
                         if (s.total > 0) {
-                            DotBar(((s.upload + s.download).toFloat() / s.total), Modifier.padding(top = 10.dp))
+                            SegmentedBar((s.upload + s.download).toFloat() / s.total, Modifier.padding(top = Space.small))
                             NLabel("${fmtBytes(s.upload + s.download)} / ${fmtBytes(s.total)}", Modifier.padding(top = 6.dp))
                         }
                         if (s.error.isNotEmpty()) NLabel(s.error, Modifier.padding(top = 6.dp), color = n.accent)
@@ -176,7 +176,7 @@ fun ImportSheet(p: ImportPreview, existingKeys: Set<String>, a: Actions, onDismi
             if (p.settings != null) ToggleRow("Also restore settings", restore, "FROM BACKUP") { restore = it }
 
             val count = chosen.size + p.subUrls.size
-            if (busy) NBusyBlock("IMPORTING", "${chosen.size} SERVERS - ${p.subUrls.size} SUBSCRIPTIONS")
+            if (busy) BusyBlock("Importing", "${chosen.size} servers · ${p.subUrls.size} subscriptions")
             Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 NButton("CANCEL", onDismiss, Modifier.weight(1f), enabled = !busy)
                 NButton(if (busy) "..." else if (count > 0 || restore) "IMPORT $count" else "IMPORT",
