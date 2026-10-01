@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -110,10 +111,17 @@ fun SwipeActionRow(
                         .clip(RoundedCornerShape(Radius.card))
                         .background(if (isShare) n.surface2 else n.accent)
                         // Only interactive once fully open, so a drag can never fire the action.
-                        .then(if (open) Modifier.clickable {
-                            if (isShare) onShare() else onDelete()
-                            close()
-                        } else Modifier),
+                        .then(
+                            if (open) {
+                                Modifier.clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ) {
+                                    if (isShare) onShare() else onDelete()
+                                    close()
+                                }
+                            } else Modifier,
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(

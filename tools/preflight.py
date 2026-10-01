@@ -348,6 +348,30 @@ for _f, _b in _kt.items():
                         line_no = _ub[:_c.start()].count("\n") + 1
                         fail.append(f"{_f}: {_name}() does not declare '{_named}' but it is passed at {_u}:{line_no}")
 
+# ---- 14e. no bare `Modifier.clickable {` inside a `.then(...)` ----
+# A trailing lambda on Modifier.clickable inside .then(...) gives the compiler no overload to pick from and
+# it fails with "None of the following candidates is applicable". Elsewhere `.clickable { }` is perfectly
+# valid, so only flag it where it is actually ambiguous.
+for _f in _g.glob(os.path.join(ROOT, "**/*.kt"), recursive=True):
+    _b = strip_comments(open(_f).read())
+    for _m in re.finditer(r"\.then\(", _b):
+        # take this .then( call's argument text
+        _d, _args, _i = 1, [], _m.end()
+        while _i < len(_b) and _d > 0:
+            _c = _b[_i]
+            if _c == "(":
+                _d += 1
+            elif _c == ")":
+                _d -= 1
+                if _d == 0:
+                    break
+            _args.append(_c)
+            _i += 1
+        _a = "".join(_args)
+        if re.search(r"\.clickable\s*\{", _a):
+            line_no = _b[:_m.start()].count("\n") + 1
+            fail.append(f"{_f}:{line_no} `.clickable {{` inside .then(...) needs parentheses - write .clickable(...) {{ }}")
+
 # ---- 15. Glance symbols: verify against the known-good widget's import set ----
 # Glance's API is easy to guess wrong (ColorFilter lives in androidx.glance, defaultWeight in
 # .layout, provideGlance is a suspend override). Diff our imports against a known-compiling baseline.
