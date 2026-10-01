@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="channel_name">VPN لیمو</string>
+    <string name="notif_connecting">در حال اتصال</string>
+    <string name="notif_disconnect">قطع اتصال</string>
+    <string name="notif_retry">اتصال دوباره</string>
+    <string name="notif_session">این نشست</string>
+    <string name="notif_blocked_title">اتصال قطع شد</string>
+    <string name="notif_blocked_text">ترافیک تا اتصال دوباره مسدود است</string>
+    <string name="core_died">هسته Xray به‌طور غیرمنتظره متوقف شد</string>
+    <string name="state_off">خاموش</string>
+    <string name="state_connecting">در حال اتصال</string>
+    <string name="state_on">متصل</string>
+    <string name="state_error">خطا</string>
+    <string name="widget_desc">کلید اتصال با سرعت زنده</string>
+</resources>

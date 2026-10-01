@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="channel_name">Limoo VPN</string>
+    <string name="notif_connecting">Connecting</string>
+    <string name="notif_disconnect">Disconnect</string>
+    <string name="notif_retry">Reconnect</string>
+    <string name="notif_session">Session</string>
+    <string name="notif_blocked_title">Connection lost</string>
+    <string name="notif_blocked_text">Traffic is blocked until you reconnect</string>
+    <string name="core_died">The Xray core stopped unexpectedly</string>
+    <string name="state_off">Off</string>
+    <string name="state_connecting">Connecting</string>
+    <string name="state_on">Connected</string>
+    <string name="state_error">Error</string>
+    <string name="widget_desc">Connect toggle with live speed</string>
+</resources>

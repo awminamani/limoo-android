@@ -49,10 +49,20 @@ Kotlin + Jetpack Compose + `VpnService`. v0.2 UI/UX redesign below was written w
 - The release APK was unsigned, so Android refused to install it. `app/build.gradle.kts` now signs release with
   the debug keystore so the CI artifact is installable (replace with your own keystore for real releases).
 
+## v0.3
+- **Live stats fixed:** parses the core's real `tag,dir,value;` format, outbound counters enabled, rates on real elapsed time, Android-counter fallback, Persian-locale digits fixed.
+- **Notification:** live down/up speed, session totals, uptime chronometer, Reconnect/Disconnect. Persian strings.
+- **Kill switch:** in-app (tunnel held, traffic dropped if the core fails; watchdog detects a dead core) + shortcut to Android's Always-on/lockdown.
+- **Data usage history:** per day (90 days) and per server, Home card with today / 7 / 30 days and a 7-day chart.
+- **Home-screen widget** (Glance): connect toggle, state, server, live speed.
+- **Security:** servers and subscriptions encrypted at rest (Android Keystore AES-256-GCM); real release signing via `keystore.properties` or CI secrets.
+- **Build safety:** `verifyXrayCore` fails the build on an incompatible AAR; preflight + unit tests (Robolectric) run in CI.
+- **Smaller:** instant disconnect, configurable ping timeout, "amber" accent implemented, version shown from the package, new traced app/notification icon.
+
 ## Known gaps
 - Core binding is reflection-based against the recent `CoreController` API (`Libv2ray.newCoreController`, `startLoop(config, tunFd)`) with Xray's own `tun` inbound. I could not inspect the AAR, so if your AAR version differs, adjust `core/CoreEngine.kt`; errors show on the Home screen.
-- Traffic numbers come from Android's per-app counters (approximate), not Xray stats.
-- Only English strings (no translations yet). Latency test is TCP-connect; real delay needs an active connection.
+- Traffic numbers come from Xray's own counters, with Android's per-app counters as automatic fallback.
+- Notification and widget are translated to Persian; the in-app screens are still English. Latency test is TCP-connect; real delay needs an active connection.
 - No unit tests; parser/format code is the best first place to add them.
 
 ## .limoo spec v1

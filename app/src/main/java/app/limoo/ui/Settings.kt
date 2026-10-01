@@ -81,6 +81,9 @@ fun SettingsScreen(store: Store, a: Actions) {
         }
         "conn" -> Page("CONNECTION", { page = "" }) {
             Group {
+                val sysCtx = LocalContext.current
+                ToggleRow("Kill switch", st.killSwitch, "BLOCK TRAFFIC IF THE CONNECTION DROPS") { v -> upd { it.copy(killSwitch = v) } }; NDivider()
+                NRow("System kill switch", "ALWAYS-ON VPN + BLOCK CONNECTIONS WITHOUT VPN", { runCatching { sysCtx.startActivity(android.content.Intent(android.provider.Settings.ACTION_VPN_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } }) { Text("›", style = NType.body, color = n.muted) }; NDivider()
                 ChoiceRow("Mode", listOf("vpn", "proxy"), st.mode) { v -> upd { it.copy(mode = v) } }; NDivider()
                 ToggleRow("Connect on app start", st.autoConnect) { v -> upd { it.copy(autoConnect = v) } }; NDivider()
                 ToggleRow("Auto-select fastest server", st.autoSelect, "BEFORE EVERY CONNECT") { v -> upd { it.copy(autoSelect = v) } }; NDivider()
@@ -90,6 +93,7 @@ fun SettingsScreen(store: Store, a: Actions) {
             }
             Group {
                 FieldRow("Test URL", st.testUrl) { v -> upd { it.copy(testUrl = v) } }
+                NumberRow("Ping timeout (ms)", st.pingTimeoutMs) { v -> upd { it.copy(pingTimeoutMs = v.coerceIn(500, 20000)) } }
                 NumberRow("MTU", st.mtu) { v -> upd { it.copy(mtu = v) } }
                 FieldRow("VPN DNS", st.vpnDns) { v -> upd { it.copy(vpnDns = v) } }
                 NumberRow("SOCKS port", st.socksPort) { v -> upd { it.copy(socksPort = v) } }
@@ -163,7 +167,7 @@ fun SettingsScreen(store: Store, a: Actions) {
                 NRow("Reset settings", "servers are kept", { confirmReset = true }) { Text("›", style = NType.body, color = n.muted) }
             }
             Group {
-                NRow("Limoo", "version 0.3.0") {}; NDivider()
+                NRow("Limoo", "version " + LocalContext.current.let { c -> runCatching { c.packageManager.getPackageInfo(c.packageName, 0).versionName }.getOrNull() ?: "?" }) {}; NDivider()
                 NRow("Core", "Xray via libv2ray") {}
             }
         }

@@ -1,0 +1,26 @@
+v0.3: working live stats, full notification, kill switch, usage history, widget, new icon
+
+Fixes
+- Traffic: queryAllOutboundTrafficStats returns `tag,dir,value;` text and resets on read; the old
+  JSON regex never matched, so core stats were always null. New parser, deltas accumulated in the
+  service, rates on real elapsed time, Android-counter fallback. Outbound stats policy enabled.
+- Home/widget/notification read one traffic flow from the service (no double polling).
+- Locale.US for dot-matrix numbers (Persian digits rendered blank).
+- Notification: live down/up, session totals, uptime chronometer; fixed missing "M" in MB/s.
+- "amber" accent was selectable but unimplemented. Settings version now read from the package.
+- onDestroy stops the core and closes the tun fd.
+
+Features
+- Kill switch (tunnel held on core failure + watchdog) and shortcut to Android lockdown settings.
+- Data usage history per day and per server, Home usage card.
+- Home-screen widget (Glance).
+- Servers/subscriptions encrypted at rest (Android Keystore AES-GCM).
+- Instant disconnect; configurable ping timeout.
+- Persian strings for notification and widget.
+- New traced "L" launcher icon (adaptive + themed) and notification icon.
+
+Build
+- Real release signing (keystore.properties or LIMOO_* env / CI secrets), debug fallback.
+- verifyXrayCore: fails the build on an incompatible libv2ray.aar.
+- Unit tests (CoreStats, UsageLog, LinkParser via Robolectric); preflight + tests in CI.
+- Version 0.3.0 (code 3).

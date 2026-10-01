@@ -42,7 +42,8 @@ object XrayConfigBuilder {
         put("stats", buildJsonObject {})
         put("policy", buildJsonObject {
             put("levels", buildJsonObject { put("0", buildJsonObject { put("statsUserUplink", true); put("statsUserDownlink", true) }) })
-            put("system", buildJsonObject { put("statsInboundUplink", true); put("statsInboundDownlink", true) })
+            put("system", buildJsonObject { put("statsInboundUplink", true); put("statsInboundDownlink", true)
+                put("statsOutboundUplink", true); put("statsOutboundDownlink", true) })
         })
         put("routing", routing(st))
     }.toString()

@@ -35,6 +35,7 @@ class LimooApp : Application() {
             prev?.uncaughtException(thread, err)
         }
         store = Store(this)
+        app.limoo.widget.WidgetSync.start(this)
     }
 }
 
@@ -46,7 +47,7 @@ class Store(ctx: Context) {
     }
 
     private val appContext = ctx.applicationContext
-    private val sp = ctx.getSharedPreferences("limoo", Context.MODE_PRIVATE)
+    private val sp = app.limoo.core.SecurePrefs.wrap(ctx.getSharedPreferences("limoo", Context.MODE_PRIVATE), setOf("servers", "subs"))
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     val servers = MutableStateFlow(runCatching { json.decodeFromString<List<Server>>(sp.getString("servers", "[]")!!) }.getOrDefault(emptyList()))
@@ -113,7 +114,7 @@ class Store(ctx: Context) {
             val sem = Semaphore(if (real) 2 else 8)
             targets.map { s ->
                 async {
-                    val ms = sem.withPermit { if (real) pingReal(s, st) else Latency.tcp(s) }
+                    val ms = sem.withPermit { if (real) pingReal(s, st) else Latency.tcp(s, st.pingTimeoutMs) }
                     setPing(s.id, ms); pinging.update { it - s.id }
                 }
             }.awaitAll()
@@ -123,7 +124,7 @@ class Store(ctx: Context) {
     /** Real delay, falling back to TCP when the core probe is unavailable (-1) or fails (0). */
     private suspend fun pingReal(s: Server, st: AppSettings): Long {
         val ms = Latency.real(appContext, s, st, st.testUrl)
-        return if (ms > 0) ms else if (ms == 0L) 0L else Latency.tcp(s)
+        return if (ms > 0) ms else if (ms == 0L) 0L else Latency.tcp(s, st.pingTimeoutMs)
     }
 
     suspend fun autoSelectBest(real: Boolean = false) { pingAll(real = real); servers.value.filter { it.pingMs > 0 }.minByOrNull { it.pingMs }?.let { select(it.id) } }

@@ -10,3 +10,5 @@ captures/
 app/libs/*.aar
 app/libs/*.aar.tmp
 *.keystore
+keystore.properties
+*.jks

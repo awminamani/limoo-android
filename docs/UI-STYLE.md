@@ -116,11 +116,16 @@ Add new UI here, not inline in a screen, so the vocabulary stays closed.
 
 No icon font. Two kinds only:
 
-- **Dot-grid vectors** in `res/drawable` — `ic_launcher` (dot "L"), `ic_stat` (its status-bar reduction),
+- **Dot-grid vectors** in `res/drawable` — `ic_launcher` (the traced Limoo "L" mark on OLED black, with a themed-icon monochrome layer), `ic_stat` (the same mark as a flat silhouette),
   `ic_tile` (dot ring). Built on a square grid with circular, uniformly spaced dots.
 - **Drawn marks** — `MenuMark` for overflow.
 
 Not every icon may be dots. `MenuMark` is deliberately hairlines.
+
+### Widget
+
+`widget/LimooWidget.kt` (Glance, so no hand-written RemoteViews): `widget_bg` = card surface + hairline,
+`widget_ring_on/off` = dashed oval echoing the connect ring. State label in mono micro caps; accent only for error/blocked.
 
 ### Navigation
 
@@ -152,8 +157,11 @@ renders `BusyRow` and disables the confirm button.
   `res/layout` notification layout from returning.
 - `startForeground()` must never throw — it is on the connect path. `minimalForeground()` is the fallback.
 - The Xray core's `initCoreEnv` base key must be 32 bytes as **unpadded base64url** (43 chars), not hex.
-- Traffic-stat keys are **`uplink` / `downlink`**, not `up` / `down`. Wrong keys fail silently.
-- The Xray config **must declare `stats` and a `policy`** or `queryAllOutboundTrafficStats()` has no counters
+- `queryAllOutboundTrafficStats()` returns **plain text** `tag,uplink|downlink,value;` and **resets the
+ counters on read**. Values are deltas; only `LimooVpnService` may poll it. Count `proxy` + `direct` only
+ (`fragment` is a dialerProxy under `proxy`, counting it doubles bytes).
+- Format numbers for `DotReadout` with `Locale.US`: Persian/Arabic digits have no glyph and render blank.
+- The Xray config **must declare `stats` and a `policy` with `statsOutboundUplink/Downlink`** or `queryAllOutboundTrafficStats()` has no counters
   to report and every live figure silently reads zero. See `XrayConfigBuilder.build`.
 - The delay probe needs `initCoreEnv` to have run and must use `XrayConfigBuilder.buildProbe` (no inbounds —
   a probe that binds the SOCKS port collides with the running core).

@@ -6,10 +6,11 @@
 3. Brace and paren balance per file has not changed relative to the last known-good build.
 4. Positional-argument counts match the callee's parameter count for our own composables.
 """
-import re, sys, glob, zipfile, subprocess
+import os, re, sys, glob, zipfile, subprocess
 
-SDK = "/opt/android-sdk/platforms/android-34/android.jar"
-ROOT = "/tmp/work/app/src/main/java/app/limoo"
+REPO = os.environ.get("LIMOO_REPO", os.getcwd())
+SDK = os.path.join(os.environ.get("ANDROID_HOME", os.environ.get("ANDROID_SDK_ROOT", "/opt/android-sdk")), "platforms/android-34/android.jar")
+ROOT = os.path.join(REPO, "app/src/main/java/app/limoo")
 fail = []
 
 # ---- 1. imports ----
@@ -50,7 +51,7 @@ for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
             fail.append(f"{f}:{i} uses setContentView on a Builder (does not exist)")
 
 # ---- 3. balance delta vs last green ----
-GREEN = sp.run(["git", "-C", "/tmp/work", "rev-list", "-1", "--grep=success", "--all"],
+GREEN = sp.run(["git", "-C", REPO, "rev-list", "-1", "--grep=success", "--all"],
                capture_output=True, text=True)
 def bal(s):
     s = re.sub(r"//[^\n]*", "", s); s = re.sub(r"/\*.*?\*/", "", s, flags=re.S)

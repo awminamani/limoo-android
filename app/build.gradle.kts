@@ -7,20 +7,33 @@ plugins {
 android {
     namespace = "app.limoo"; compileSdk = 34
     defaultConfig {
-        applicationId = "app.limoo"; minSdk = 26; targetSdk = 34; versionCode = 2; versionName = "0.2.0"
+        applicationId = "app.limoo"; minSdk = 26; targetSdk = 34; versionCode = 3; versionName = "0.3.0"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
-    signingConfigs { getByName("debug") }   // reuse the debug keystore for release so CI's APK is installable
+    // Release signing: keystore.properties (local, git-ignored) or LIMOO_* env vars (CI). Falls back to the
+    // debug key so a fresh clone still builds an installable APK.
+    val ksProps = java.util.Properties().apply { rootProject.file("keystore.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) } }
+    fun ks(k: String, env: String): String? = (ksProps.getProperty(k) ?: System.getenv(env))?.takeIf { it.isNotBlank() }
+    signingConfigs {
+        val store = ks("storeFile", "LIMOO_KEYSTORE")
+        if (store != null) create("release") {
+            storeFile = rootProject.file(store)
+            storePassword = ks("storePassword", "LIMOO_KEYSTORE_PASSWORD")
+            keyAlias = ks("keyAlias", "LIMOO_KEY_ALIAS")
+            keyPassword = ks("keyPassword", "LIMOO_KEY_PASSWORD")
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
     buildFeatures { compose = true }
+    testOptions { unitTests.isIncludeAndroidResources = true }
 }
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.09.00"))
@@ -33,6 +46,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")   // QR scan (camera) + ZXing core for QR export
+    implementation("androidx.glance:glance-appwidget:1.1.0") // home-screen widget
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.13")
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar"))))  // Xray core AAR (libv2ray.aar)
 }
 
@@ -51,3 +67,32 @@ tasks.register("fetchXrayCore") {
     }
 }
 tasks.matching { it.name == "preBuild" }.configureEach { dependsOn("fetchXrayCore") }
+
+// ---- Xray core: verify the AAR exposes the API CoreEngine calls by reflection ----
+// Reflection means a wrong AAR compiles fine and only fails on a phone. Fail the BUILD instead.
+tasks.register("verifyXrayCore") {
+    group = "limoo"; description = "Checks libv2ray.aar has the CoreController API Limoo needs"
+    dependsOn("fetchXrayCore")
+    onlyIf { coreAar.exists() }
+    doLast {
+        fun entries(bytes: ByteArray): Map<String, ByteArray> {
+            val out = HashMap<String, ByteArray>()
+            java.util.zip.ZipInputStream(bytes.inputStream()).use { z ->
+                while (true) { val e = z.nextEntry ?: break; if (!e.isDirectory) out[e.name] = z.readBytes() }
+            }
+            return out
+        }
+        val aar = entries(coreAar.readBytes())
+        val jar = entries(aar["classes.jar"] ?: throw GradleException("libv2ray.aar has no classes.jar"))
+        val lib = jar["libv2ray/Libv2ray.class"]?.toString(Charsets.ISO_8859_1) ?: throw GradleException("libv2ray.aar: no libv2ray.Libv2ray class")
+        val ctl = jar["libv2ray/CoreController.class"]?.toString(Charsets.ISO_8859_1)
+            ?: throw GradleException("libv2ray.aar is too old: no CoreController. Use a recent AndroidLibXrayLite release.")
+        val need = mapOf("newCoreController" to lib, "initCoreEnv" to lib, "startLoop" to ctl, "stopLoop" to ctl)
+        val missing = need.filter { (m, cls) -> !cls.contains(m) }.keys
+        if (missing.isNotEmpty()) throw GradleException("libv2ray.aar is missing $missing - CoreEngine.kt would fail at runtime")
+        if (!ctl.contains("queryAllOutboundTrafficStats") && !ctl.contains("queryStats"))
+            logger.warn("libv2ray.aar has no traffic stats API: Limoo will fall back to Android's per-app counters")
+        println("verifyXrayCore: OK")
+    }
+}
+tasks.matching { it.name == "preBuild" }.configureEach { dependsOn("verifyXrayCore") }

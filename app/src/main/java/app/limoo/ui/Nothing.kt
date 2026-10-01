@@ -61,6 +61,7 @@ fun NTheme(st: AppSettings, content: @Composable () -> Unit) {
         "red" -> base.accent
         "lime" -> if (dark) Color(0xFFB6D63B) else Color(0xFF5E7A00)
         "blue" -> if (dark) Color(0xFF5B8DEF) else Color(0xFF2C5FCC)
+        "amber" -> if (dark) Color(0xFFF5A623) else Color(0xFFB36B00)
         // "mono" means the interface carries no signal colour at all - inversion does the work.
         else -> base.text
     }

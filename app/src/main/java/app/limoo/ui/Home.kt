@@ -42,42 +42,29 @@ fun fmtBytes(b: Long): String {
     val u = arrayOf("B", "KB", "MB", "GB", "TB")
     var v = b.coerceAtLeast(0).toDouble(); var i = 0
     while (v >= 1024 && i < 4) { v /= 1024; i++ }
-    return (if (i == 0) "%.0f" else "%.1f").format(v) + " " + u[i]
+    return String.format(java.util.Locale.US, if (i == 0) "%.0f" else "%.1f", v) + " " + u[i]
 }
 
 fun fmtUptime(ms: Long): String {
     val s = (ms / 1000).coerceAtLeast(0)
-    return "%02d:%02d:%02d".format(s / 3600, s % 3600 / 60, s % 60)
+    return String.format(java.util.Locale.US, "%02d:%02d:%02d", s / 3600, s % 3600 / 60, s % 60)
 }
 
 fun mask(s: String, on: Boolean) = if (!on) s else if (s.length <= 4) "****" else s.take(2) + "***" + s.takeLast(2)
 
 class Traffic(val down: Long = 0, val up: Long = 0, val totalDown: Long = 0, val totalUp: Long = 0)
 
-/** Speed and session totals from the core's own counters, falling back to Android's per-app counters. */
+/**
+ * Speed and session totals, straight from LimooVpnService. The service is the only reader of the core's
+ * counters (they reset on read) and computes the rates, so Home, widget and notification always agree.
+ */
 @Composable
 fun rememberTraffic(active: Boolean): Pair<Traffic, Boolean> {
-    var t by remember { mutableStateOf(Traffic()) }
-    var exact by remember { mutableStateOf(false) }
-    LaunchedEffect(active) {
-        t = Traffic(); exact = false
-        if (!active) return@LaunchedEffect
-        val uid = Process.myUid()
-        val r0 = TrafficStats.getUidRxBytes(uid); val t0 = TrafficStats.getUidTxBytes(uid); var lr = r0; var lt = t0
-        var cr = 0L; var cu = 0L
-        while (true) {
-            delay(1000)
-            val core = LimooVpnService.traffic.value
-            if (core != null) {
-                exact = true
-                t = Traffic(core.down - cr, core.up - cu, core.down, core.up); cr = core.down; cu = core.up
-            } else {
-                val r = TrafficStats.getUidRxBytes(uid); val x = TrafficStats.getUidTxBytes(uid)
-                t = Traffic(r - lr, x - lt, r - r0, x - t0); lr = r; lt = x
-            }
-        }
-    }
-    return t to exact
+    val live by LimooVpnService.traffic.collectAsState()
+    val exact by LimooVpnService.trafficExact.collectAsState()
+    val c = if (active) live else null
+    val t = if (c == null) Traffic() else Traffic(down = c.downRate, up = c.upRate, totalDown = c.down, totalUp = c.up)
+    return t to (c != null && exact)
 }
 
 /**
@@ -172,7 +159,7 @@ fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: ()
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val (traffic, exactTraffic) = rememberTraffic(on)
 
-    suspend fun runTest() { testing = true; realMs = Latency.viaProxy(st.socksPort, st.testUrl); testing = false }
+    suspend fun runTest() { testing = true; realMs = Latency.viaProxy(st.socksPort, st.testUrl, st.pingTimeoutMs * 2); testing = false }
     LaunchedEffect(on, sel?.id) { realMs = null; if (on) { delay(1500); runTest() } }
     LaunchedEffect(on) { if (!on) return@LaunchedEffect; while (true) { now = System.currentTimeMillis(); delay(1000) } }
 
@@ -294,6 +281,9 @@ fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: ()
                 }
             }
 
+            Spacer(Modifier.height(Space.compact))
+            UsageCard(sel.id)
+            
             // ---- subscription allowance ----
             subs.firstOrNull { it.id == sel.subId }?.takeIf { it.total > 0 || it.expire > 0 }?.let { sub ->
                 Spacer(Modifier.height(Space.compact))

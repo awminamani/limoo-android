@@ -59,4 +59,8 @@ data class AppSettings(
     val testUrl: String = "https://www.gstatic.com/generate_204", val autoSelect: Boolean = false,
     // true = use the core's own delay probe instead of a plain TCP connect (slower, but real RTT)
     val realPing: Boolean = true,
+    // kill switch: keep the tunnel up and drop traffic if the core fails
+    val killSwitch: Boolean = false,
+    // latency test timeout (TCP connect; the in-tunnel test uses 2x)
+    val pingTimeoutMs: Int = 4000,
 )
