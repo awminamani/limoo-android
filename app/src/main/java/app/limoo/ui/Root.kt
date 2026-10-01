@@ -16,7 +16,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import app.limoo.Store
@@ -38,6 +37,8 @@ data class Actions(
     val toggle: () -> Unit, val reconnect: () -> Unit,
     val pasteImport: () -> Unit, val pickFile: () -> Unit, val scan: () -> Unit, val peekClip: () -> ImportPreview?,
     val share: (servers: List<Server>, name: String, note: String, expiresDays: Int, password: String?, asLink: Boolean) -> Unit,
+    /** Copies the plain vless://vmess://trojan://ss:// links for these servers to the clipboard. */
+    val copyStandardLinks: (List<Server>) -> Unit,
     val exportBackup: () -> Unit,
     val commitImport: (preview: ImportPreview, chosen: List<Server>, group: String, restoreSettings: Boolean, subName: String) -> Unit,
     val unlock: (preview: ImportPreview, password: String) -> Unit,
@@ -75,13 +76,15 @@ fun LimooRoot(
         }
     }
 
-    // One root Box for everything. The background layer is chosen per tab:
-    //   Home    -> accent-reactive wallpaper (monochrome base + accent-tinted mask)
-    //   others  -> the flat canvas, because dense rows over artwork hurt legibility
+    // One root Box for everything. Every tab gets the accent-reactive wallpaper behind it; the scrim
+    // rises on the list-heavy screens (Servers, Settings) where many hairline rows sit over the artwork,
+    // while Home keeps it light because it has the most negative space. Cards supply their own surface
+    // fill, so text on top stays legible either way.
+    //
     // The accent comes from LocalN, which NTheme recomputes from the stored AppSettings.accent, so a
     // change to the setting retints the wallpaper immediately: one source of truth, no restart.
-    Box(Modifier.fillMaxSize().background(if (tab == 0) Color.Transparent else n.bg)) {
-        if (tab == 0) WallpaperLayers()
+    Box(Modifier.fillMaxSize()) {
+        WallpaperLayers(scrim = if (tab == 0) 0.10f else 0.45f)
         Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
             AnimatedVisibility(clipOffer != null) {
                 clipOffer?.let { o ->

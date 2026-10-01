@@ -204,9 +204,23 @@ fun ShareSheet(servers: List<Server>, onDismiss: () -> Unit, a: Actions) {
             listOf(0 to "NEVER", 1 to "1 DAY", 7 to "7 DAYS", 30 to "30 DAYS").forEach { (d, l) -> NChip(l, days == d) { days = d } }
         }
         Text(if (pw.isEmpty()) "Anyone with the file can read the servers." else "Encrypted with AES-256. Share the password separately.", style = NType.label, color = n.dim, modifier = Modifier.padding(top = 12.dp))
-        Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            NButton("LINK", { onDismiss(); a.share(servers, name, note, days, pw.ifEmpty { null }, true) }, Modifier.weight(1f))
-            NButton("FILE", { onDismiss(); a.share(servers, name, note, days, pw.ifEmpty { null }, false) }, Modifier.weight(1f), primary = true)
-        }
+        Spacer(Modifier.height(Space.standard))
+        NDivider()
+        Spacer(Modifier.height(Space.small))
+        NLabel("Send as")
+        Spacer(Modifier.height(Space.compact))
+        SheetRow(
+            "V2Ray link",
+            "vless:// - paste into any client",
+            highlight = true,
+        ) { onDismiss(); a.copyStandardLinks(servers) }
+        SheetRow(
+            ".limoo link",
+            "limoo:// - keeps notes and expiry",
+        ) { onDismiss(); a.share(servers, name, note, days, pw.ifEmpty { null }, true) }
+        SheetRow(
+            ".limoo file",
+            "encrypted with the password above",
+        ) { onDismiss(); a.share(servers, name, note, days, pw.ifEmpty { null }, false) }
     }
 }

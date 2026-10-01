@@ -1,6 +1,7 @@
 package app.limoo.ui
 
 import android.Manifest
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -25,6 +26,7 @@ import app.limoo.core.LimooVpnService
 import app.limoo.format.ImportPreview
 import app.limoo.format.Importer
 import app.limoo.format.LimooFile
+import app.limoo.format.LinkBuilder
 import app.limoo.format.LimooPayload
 import app.limoo.model.Server
 import com.journeyapps.barcodescanner.ScanContract
@@ -53,7 +55,7 @@ class MainActivity : ComponentActivity() {
             peekClip = { clipText()?.let { t -> runCatching { Importer.parse(t, "CLIPBOARD") }.getOrNull() } },
             share = ::share, exportBackup = ::exportBackup,
             commitImport = ::commit, unlock = { p, pw -> open(p.raw, p.source, pw) },
-            addSub = ::addSub, setBusy = ::setBusy,
+            addSub = ::addSub, setBusy = ::setBusy, copyStandardLinks = ::copyStandardLinks,
         )
     }
 
@@ -156,6 +158,15 @@ class MainActivity : ComponentActivity() {
     private fun setBusy(on: Boolean) { busyCount = (busyCount + if (on) 1 else -1).coerceAtLeast(0) }
 
     // ---------- share / backup ----------
+    /** Copy the plain share links (vless://, vmess://, trojan://, ss://) - one per line. */
+    private fun copyStandardLinks(servers: List<Server>) {
+        if (servers.isEmpty()) return Ui.say("NOTHING TO SHARE")
+        val text = servers.joinToString("\n") { LinkBuilder.build(it) }
+        getSystemService(ClipboardManager::class.java)
+            .setPrimaryClip(ClipData.newPlainText("Limoo links", text))
+        Ui.say(if (servers.size == 1) "LINK COPIED" else "${servers.size} LINKS COPIED")
+    }
+
     private fun share(servers: List<Server>, name: String, note: String, days: Int, pw: String?, asLink: Boolean) {
         if (servers.isEmpty()) return Ui.say("NOTHING TO SHARE")
         send(LimooPayload(

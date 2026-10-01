@@ -180,6 +180,49 @@ renders `BusyRow` and disables the confirm button.
 - The status-bar icon is a flat silhouette — Android tints it and discards colour, so only the letterform
   survives. Do not try to put fine detail in it.
 
+## 5a. Swipe actions (One UI style)
+
+`ui/SwipeRow.kt` -> `SwipeActionRow`. Replaces `SwipeToDismissBox` entirely.
+
+- **Right = Share, Left = Delete.** Share opens the sheet, which offers the standard `vless://` link, a
+  `limoo://` link, or a `.limoo` file. Favourite is no longer a swipe action; it stays in the row menu and
+  the multi-select bar.
+- **The feel is the point.** The row tracks the finger 1:1 to 60% of its width, then the drag is damped
+  hard (`RESISTANCE`), so it feels heavy past the threshold. Crossing it arms the action and fires a
+  haptic, so release is confirmed by feel. Early release springs back over 180ms.
+- **Never destructive on the gesture itself.** The row stays in place and the caller acts; delete still
+  goes through `Ui.say(..., "UNDO")`. A mis-swipe must always be recoverable.
+- Delete uses the signal colour - the one place a swipe background takes the accent.
+
+## 5b. Accent-reactive wallpaper
+
+`ui/Wallpaper.kt`. Two layers behind every tab: the monochrome `limoo_wallpaper_base`, then
+`limoo_accent_mask` tinted with the current accent.
+
+- **Do not resample, palette-quantise or re-encode the assets.** They live in `res/drawable-nodpi/` at
+  their authored 852x1846; the base is 1.9 MB and that is accepted on purpose.
+- **The mask's alpha is the mechanism**, not an optimisation: white, partial alpha (max ~190), zero fully
+  opaque pixels. `ColorFilter.tint` recolours the RGB and preserves alpha, so only the masked details take
+  the accent. Flattening or compositing the mask would tint the whole frame. Preflight 14b enforces this.
+- **The accent comes from `LocalN`**, derived from the stored `AppSettings.accent`. Never add a second
+  accent source or a dedicated preference - that is what makes the wallpaper retint live.
+- Applied on **every tab**, scrim raised where dense rows sit over artwork: 0.10 Home, 0.45 Servers and
+  Settings. Cards carry their own surface fill, so text stays legible. Both layers use `ContentScale.Crop`;
+  never `FillBounds`, which would stretch the artwork.
+
+## 6b. Release signing
+
+Without a keystore, CI signs the release APK with a **throwaway debug key regenerated every run**. Android
+then treats each build as a different app and refuses to install over the previous one
+(`INSTALL_FAILED_UPDATE_INCOMPATIBLE`), so the user has to uninstall first - which loses all data.
+
+Fix once with `tools/make-keystore.sh`, which prints the exact `gh secret set` commands. Afterwards every
+build upgrades cleanly. The workflow emits a warning annotation whenever it has to fall back to the debug
+key, so the cause is never a mystery.
+
+Never commit a keystore or its base64. Losing the key means existing installs can never be updated again
+without another uninstall.
+
 ## 7. Pre-flight
 
 Run before pushing:

@@ -57,7 +57,7 @@ jobs:
           if [ -n "$KS_B64" ]; then
             echo "$KS_B64" | base64 -d > release.jks
             { echo LIMOO_KEYSTORE=release.jks; echo LIMOO_KEYSTORE_PASSWORD=$KS_PASS; echo LIMOO_KEY_ALIAS=$KEY_ALIAS; echo LIMOO_KEY_PASSWORD=$KEY_PASS; } >> $GITHUB_ENV
-          else echo 'No release keystore secret: release APK is signed with the debug key'; fi
+          else echo '::warning::No LIMOO_KEYSTORE_B64 secret - the release APK is signed with a throwaway debug key. Android will REFUSE to install this over the previous build (INSTALL_FAILED_UPDATE_INCOMPATIBLE) and the user must uninstall first. Run tools/make-keystore.sh once to fix this permanently.'; fi
       
       - name: Assemble release
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace

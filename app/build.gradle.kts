@@ -9,7 +9,7 @@ plugins {
 android {
     namespace = "app.limoo"; compileSdk = 34
     defaultConfig {
-        applicationId = "app.limoo"; minSdk = 26; targetSdk = 34; versionCode = 3; versionName = "0.3.0"
+        applicationId = "app.limoo"; minSdk = 26; targetSdk = 34; versionCode = 4; versionName = "0.4.0"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
     // Release signing: keystore.properties (local, git-ignored) or LIMOO_* env vars (CI). Falls back to the

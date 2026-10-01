@@ -30,37 +30,20 @@ import app.limoo.format.LinkBuilder
 import app.limoo.model.Server
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ServerRow(
     s: Server, active: Boolean, picked: Boolean, selecting: Boolean, testing: Boolean, privacy: Boolean,
-    onClick: () -> Unit, onLong: () -> Unit, onMenu: () -> Unit, onFav: () -> Unit, onDelete: () -> Unit,
+    onClick: () -> Unit, onLong: () -> Unit, onMenu: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit,
 ) {
-    val n = LocalN.current; val tick = rememberTick(strong = true)
-    val dismiss = rememberSwipeToDismissBoxState(confirmValueChange = { v ->
-        when (v) {
-            SwipeToDismissBoxValue.EndToStart -> { tick(); onDelete(); true }
-            SwipeToDismissBoxValue.StartToEnd -> { tick(); onFav(); false }
-            else -> false
-        }
-    })
-    SwipeToDismissBox(
-        state = dismiss, enableDismissFromStartToEnd = !selecting, enableDismissFromEndToStart = !selecting,
-        backgroundContent = {
-            val toEnd = dismiss.dismissDirection == SwipeToDismissBoxValue.StartToEnd
-            Box(Modifier.fillMaxSize().padding(horizontal = 26.dp), contentAlignment = if (toEnd) Alignment.CenterStart else Alignment.CenterEnd) {
-                if (dismiss.dismissDirection != SwipeToDismissBoxValue.Settled) {
-                    NLabel(if (toEnd) (if (s.fav) "Unfavorite" else "Favorite") else "Delete", color = if (toEnd) n.text else n.accent)
-                }
-            }
-        },
-    ) {
+    val n = LocalN.current
+    // One UI style swipe: 1:1 to a threshold, then resistance, then arm + snap. Share right, Delete left.
+    SwipeActionRow(onShare = onShare, onDelete = onDelete, enabled = !selecting) {
         NCard(Modifier.fillMaxWidth(), onClick = onClick, onLongClick = onLong, highlight = picked) {
             Row(Modifier.padding(start = Space.standard, end = Space.micro, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (selecting) NCheck(picked) else NRadio(active)
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
-                    Text((if (s.fav) "* " else "") + s.name, style = NType.body, color = n.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(s.name, style = NType.body, color = n.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         "${s.protocol} - ${s.network} - ${s.security}".uppercase() + "  " + mask("${s.host}:${s.port}", privacy),
                         style = NType.label, color = n.dim, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp),
@@ -199,7 +182,9 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit, busy: String? = n
                             s, active = s.id == activeId, picked = s.id in picked, selecting = selecting, testing = s.id in pinging, privacy = st.privacyMode,
                             onClick = { if (selecting) picked = if (s.id in picked) picked - s.id else picked + s.id else store.select(s.id) },
                             onLong = { picked = if (s.id in picked) picked - s.id else picked + s.id },
-                            onMenu = { rowMenu = s }, onFav = { store.toggleFav(setOf(s.id)) }, onDelete = { deleteWithUndo(setOf(s.id)) },
+                            onMenu = { rowMenu = s },
+                            onShare = { shareList = listOf(s) },
+                            onDelete = { deleteWithUndo(setOf(s.id)) },
                         )
                     }
                 }

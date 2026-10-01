@@ -267,6 +267,20 @@ if os.path.exists(f"{_wp}/limoo_accent_mask.png"):
     except ImportError:
         pass
 
+# ---- 14c. swipe rows must use SwipeActionRow, not the dismiss box ----
+# The One UI swipe replaced SwipeToDismissBox, which flicks the row away and cannot be recovered from.
+_sv = os.path.join(ROOT, "ui/Servers.kt")
+if os.path.exists(_sv):
+    _body = strip_comments(open(_sv).read())
+    if "SwipeToDismiss" in _body:
+        fail.append(f"{_sv}: SwipeToDismissBox is gone - use SwipeActionRow (One UI resistance + snap)")
+    if "SwipeActionRow" not in _body:
+        fail.append(f"{_sv}: server rows should use SwipeActionRow")
+    # Share replaced Favourite on swipe, so the share sheet must offer the raw vless:// link too.
+    _sh = os.path.join(ROOT, "ui/Sheets.kt")
+    if os.path.exists(_sh) and "copyStandardLinks" not in strip_comments(open(_sh).read()):
+        fail.append(f"{_sh}: share sheet should offer the standard vless:// link (copyStandardLinks)")
+
 # ---- 15. Glance symbols: verify against the known-good widget's import set ----
 # Glance's API is easy to guess wrong (ColorFilter lives in androidx.glance, defaultWeight in
 # .layout, provideGlance is a suspend override). Diff our imports against a known-compiling baseline.
