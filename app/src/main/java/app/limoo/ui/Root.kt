@@ -75,7 +75,13 @@ fun LimooRoot(
         }
     }
 
-    Box(Modifier.fillMaxSize().background(n.bg)) {
+    // One root Box for everything. The background layer is chosen per tab:
+    //   Home    -> accent-reactive wallpaper (monochrome base + accent-tinted mask)
+    //   others  -> the flat canvas, because dense rows over artwork hurt legibility
+    // The accent comes from LocalN, which NTheme recomputes from the stored AppSettings.accent, so a
+    // change to the setting retints the wallpaper immediately: one source of truth, no restart.
+    Box(Modifier.fillMaxSize().background(if (tab == 0) Color.Transparent else n.bg)) {
+        if (tab == 0) WallpaperLayers()
         Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
             AnimatedVisibility(clipOffer != null) {
                 clipOffer?.let { o ->

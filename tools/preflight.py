@@ -250,6 +250,23 @@ for kts in glob.glob("/tmp/work/**/*.gradle.kts", recursive=True):
         if not imported:
             fail.append(f"{kts}:{line_no} fully-qualified java.{m.group(1)}.{cls.split('.')[0]} in a .kts script - import it")
 
+# ---- 14b. wallpaper assets present, and the mask must keep its alpha ----
+# The mask's alpha channel IS the accent-selection mechanism. A flattened or palette-quantised mask would
+# silently tint the whole frame instead of only the intended details.
+import glob as _g
+_wp = "/tmp/work/app/src/main/res/drawable-nodpi"
+for _n in ("limoo_wallpaper_base.png", "limoo_accent_mask.png"):
+    if not os.path.exists(f"{_wp}/{_n}"):
+        fail.append(f"missing wallpaper asset {_n} in res/drawable-nodpi")
+if os.path.exists(f"{_wp}/limoo_accent_mask.png"):
+    try:
+        from PIL import Image as _I
+        _im = _I.open(f"{_wp}/limoo_accent_mask.png")
+        if _im.mode not in ("RGBA", "LA"):
+            fail.append(f"limoo_accent_mask.png is {_im.mode}, not RGBA - its alpha selects which details take the accent")
+    except ImportError:
+        pass
+
 # ---- 15. Glance symbols: verify against the known-good widget's import set ----
 # Glance's API is easy to guess wrong (ColorFilter lives in androidx.glance, defaultWeight in
 # .layout, provideGlance is a suspend override). Diff our imports against a known-compiling baseline.
