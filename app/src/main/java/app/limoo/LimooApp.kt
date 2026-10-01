@@ -6,6 +6,7 @@ import app.limoo.core.Latency
 import app.limoo.format.LinkParser
 import app.limoo.model.AppSettings
 import app.limoo.model.Server
+import app.limoo.model.Subscription
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -27,35 +28,143 @@ class LimooApp : Application() {
 }
 
 class Store(ctx: Context) {
+    companion object {
+        /** Identity of a server for de-duplication / merging. */
+        fun key(s: Server) = "${s.protocol}|${s.host}|${s.port}|${s.uuid}|${s.path}|${s.sni}"
+        fun hostOf(url: String) = url.substringAfter("://").substringBefore('/').substringBefore('?')
+    }
+
     private val sp = ctx.getSharedPreferences("limoo", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
     val servers = MutableStateFlow(runCatching { json.decodeFromString<List<Server>>(sp.getString("servers", "[]")!!) }.getOrDefault(emptyList()))
     val settings = MutableStateFlow(runCatching { json.decodeFromString<AppSettings>(sp.getString("settings", "{}")!!) }.getOrDefault(AppSettings()))
-    val subs = MutableStateFlow(runCatching { json.decodeFromString<List<String>>(sp.getString("subs", "[]")!!) }.getOrDefault(emptyList()))
+    val subs = MutableStateFlow(loadSubs())
     val selectedId = MutableStateFlow(sp.getString("selected", null))
+    val pinging = MutableStateFlow<Set<String>>(emptySet())
 
+    /** v0.1 stored subscriptions as a plain URL list; v0.2 stores objects. Accept both. */
+    private fun loadSubs(): List<Subscription> {
+        val raw = sp.getString("subs", "[]")!!
+        return runCatching { json.decodeFromString<List<Subscription>>(raw) }
+            .getOrElse { runCatching { json.decodeFromString<List<String>>(raw).map { Subscription(name = hostOf(it), url = it) } }.getOrDefault(emptyList()) }
+    }
+
+    // ---------- servers ----------
     fun selected(): Server? = servers.value.firstOrNull { it.id == selectedId.value } ?: servers.value.firstOrNull()
     fun select(id: String) { selectedId.value = id; persist() }
-    fun addServers(l: List<Server>) { servers.value = (servers.value + l).distinctBy { listOf(it.protocol, it.host, it.port, it.uuid, it.path) }; persist() }
-    fun remove(id: String) { servers.value = servers.value.filter { it.id != id }; persist() }
-    fun upsert(s: Server) { servers.update { l -> if (l.any { it.id == s.id }) l.map { if (it.id == s.id) s else it } else l + s }; persist() }
-    fun setPing(id: String, ms: Long) = servers.update { l -> l.map { if (it.id == id) it.copy(pingMs = ms) else it } }
-    /** TCP-connect latency for every server (pingMs: -1 untested, 0 timeout, else ms). */
-    suspend fun pingAll() = coroutineScope {
-        val sem = Semaphore(8)
-        servers.value.map { s -> async { sem.withPermit { setPing(s.id, Latency.tcp(s)) } } }.awaitAll()
+    fun touch(id: String) { servers.update { l -> l.map { if (it.id == id) it.copy(lastUsed = System.currentTimeMillis()) else it } }; persist() }
+
+    /** Adds servers that are not already present; returns the ones actually added. */
+    fun addServers(l: List<Server>): List<Server> {
+        val have = servers.value.map { key(it) }.toHashSet()
+        val fresh = l.filter { have.add(key(it)) }
+        if (fresh.isNotEmpty()) { servers.update { it + fresh }; persist() }
+        return fresh
     }
+
+    fun upsert(s: Server) { servers.update { l -> if (l.any { it.id == s.id }) l.map { if (it.id == s.id) s else it } else l + s }; persist() }
+    fun duplicate(id: String) { servers.value.firstOrNull { it.id == id }?.let { s -> upsert(s.copy(id = java.util.UUID.randomUUID().toString(), name = s.name + " copy", fav = false, subId = "")) } }
+    fun setPing(id: String, ms: Long) = servers.update { l -> l.map { if (it.id == id) it.copy(pingMs = ms) else it } }
+    fun moveToGroup(ids: Set<String>, group: String) { servers.update { l -> l.map { if (it.id in ids) it.copy(group = group, subId = "") else it } }; persist() }
+
+    /** Favorites toggle: if every given server is already a favorite they are un-favorited, otherwise all become favorites. */
+    fun toggleFav(ids: Set<String>) {
+        val all = servers.value.filter { it.id in ids }.all { it.fav }
+        servers.update { l -> l.map { if (it.id in ids) it.copy(fav = !all) else it } }; persist()
+    }
+
+    /** Removes servers and returns (index, server) pairs so the removal can be undone in place. */
+    fun removeMany(ids: Set<String>): List<Pair<Int, Server>> {
+        val removed = servers.value.withIndex().filter { it.value.id in ids }.map { it.index to it.value }
+        servers.update { l -> l.filter { it.id !in ids } }; persist(); return removed
+    }
+
+    fun restore(removed: List<Pair<Int, Server>>) {
+        servers.update { l -> val m = l.toMutableList(); removed.sortedBy { it.first }.forEach { (i, s) -> m.add(i.coerceAtMost(m.size), s) }; m }; persist()
+    }
+
+    fun removeDuplicates(): Int {
+        val seen = HashSet<String>(); var n = 0
+        servers.update { l -> l.filter { if (seen.add(key(it))) true else { n++; false } } }; if (n > 0) persist(); return n
+    }
+
+    fun removeDead(): Int { val dead = servers.value.filter { it.pingMs == 0L }.map { it.id }.toSet(); if (dead.isNotEmpty()) removeMany(dead); return dead.size }
+
+    /** TCP-connect latency (pingMs: -1 untested, 0 timeout, else ms). ids == null tests everything. */
+    suspend fun pingAll(ids: Collection<String>? = null) {
+        val targets = servers.value.filter { ids == null || it.id in ids }
+        pinging.update { it + targets.map { s -> s.id } }
+        coroutineScope {
+            val sem = Semaphore(8)
+            targets.map { s -> async { sem.withPermit { setPing(s.id, Latency.tcp(s)); pinging.update { it - s.id } } } }.awaitAll()
+        }
+    }
+
     suspend fun autoSelectBest() { pingAll(); servers.value.filter { it.pingMs > 0 }.minByOrNull { it.pingMs }?.let { select(it.id) } }
+
     fun update(f: (AppSettings) -> AppSettings) { settings.value = f(settings.value); persist() }
 
-    suspend fun addSubscription(url: String) { if (url !in subs.value) subs.value = subs.value + url; persist(); refresh(url) }
-    suspend fun refreshAll() = subs.value.forEach { runCatching { refresh(it) } }
-    private suspend fun refresh(url: String) {
-        val text = withContext(Dispatchers.IO) {
-            (URL(url).openConnection() as HttpURLConnection).apply { setRequestProperty("User-Agent", "Limoo/0.1"); connectTimeout = 15000; readTimeout = 15000 }
-                .inputStream.bufferedReader().readText()
+    // ---------- subscriptions ----------
+    private class Fetched(val servers: List<Server>, val title: String?, val upload: Long, val download: Long, val total: Long, val expire: Long)
+
+    private suspend fun fetch(url: String): Fetched = withContext(Dispatchers.IO) {
+        val c = (URL(url).openConnection() as HttpURLConnection).apply {
+            setRequestProperty("User-Agent", "Limoo/0.2"); connectTimeout = 15000; readTimeout = 20000
         }
-        addServers(LinkParser.parseMany(text).map { it.copy(group = url.substringAfter("://").substringBefore('/')) })
+        if (c.responseCode !in 200..299) throw Exception("HTTP ${c.responseCode}")
+        val list = LinkParser.parseMany(c.inputStream.bufferedReader().readText())
+        if (list.isEmpty()) throw Exception("No servers found in subscription")
+        val info = (c.getHeaderField("subscription-userinfo") ?: "").split(';').mapNotNull { p ->
+            p.trim().split('=').takeIf { it.size == 2 }?.let { it[0].trim().lowercase() to (it[1].trim().toLongOrNull() ?: 0L) }
+        }.toMap()
+        val title = c.getHeaderField("profile-title")?.let { t ->
+            if (t.startsWith("base64:")) runCatching { String(android.util.Base64.decode(t.removePrefix("base64:"), android.util.Base64.DEFAULT)) }.getOrNull() else t
+        }?.takeIf { it.isNotBlank() }
+        Fetched(list, title, info["upload"] ?: 0L, info["download"] ?: 0L, info["total"] ?: 0L, info["expire"] ?: 0L)
+    }
+
+    /** Adds the subscription and fetches it. The subscription is kept even if the first fetch fails (error is shown, retry works). */
+    suspend fun addSubscription(url: String, name: String = ""): Int {
+        val existing = subs.value.firstOrNull { it.url == url }
+        val sub = existing ?: Subscription(name = name.ifBlank { hostOf(url) }, url = url)
+        if (existing == null) { subs.update { it + sub }; persist() }
+        return refreshSub(sub.id)
+    }
+
+    /** Re-fetches one subscription, merging by server identity so selection, favorites and pings survive an update. */
+    suspend fun refreshSub(id: String): Int {
+        val sub = subs.value.firstOrNull { it.id == id } ?: return 0
+        try {
+            val r = fetch(sub.url)
+            val name = if (sub.name == hostOf(sub.url) && r.title != null) r.title else sub.name
+            val old = servers.value.associateBy { key(it) }
+            val merged = r.servers.map { n ->
+                val o = old[key(n)]
+                (if (o != null) n.copy(id = o.id, fav = o.fav, pingMs = o.pingMs, lastUsed = o.lastUsed) else n).copy(subId = id, group = name)
+            }
+            val keys = merged.map { key(it) }.toHashSet()
+            servers.update { l -> l.filter { it.subId != id && key(it) !in keys } + merged }
+            subs.update { l -> l.map { if (it.id == id) it.copy(name = name, updatedAt = System.currentTimeMillis() / 1000, upload = r.upload, download = r.download, total = r.total, expire = r.expire, error = "") else it } }
+            persist(); return merged.size
+        } catch (e: Exception) {
+            subs.update { l -> l.map { if (it.id == id) it.copy(error = e.message ?: "Failed") else it } }; persist(); throw e
+        }
+    }
+
+    suspend fun refreshAll(force: Boolean = false) {
+        val now = System.currentTimeMillis() / 1000
+        subs.value.filter { it.autoUpdate && (force || now - it.updatedAt > 6 * 3600) }.forEach { runCatching { refreshSub(it.id) } }
+    }
+
+    fun updateSub(s: Subscription) {
+        subs.update { l -> l.map { if (it.id == s.id) s else it } }
+        servers.update { l -> l.map { if (it.subId == s.id) it.copy(group = s.name) else it } }; persist()
+    }
+
+    fun removeSub(id: String, keepServers: Boolean) {
+        subs.update { l -> l.filter { it.id != id } }
+        servers.update { l -> if (keepServers) l.map { if (it.subId == id) it.copy(subId = "") else it } else l.filter { it.subId != id } }; persist()
     }
 
     private fun persist() = sp.edit().putString("servers", json.encodeToString(servers.value)).putString("settings", json.encodeToString(settings.value))

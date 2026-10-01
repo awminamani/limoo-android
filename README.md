@@ -1,6 +1,6 @@
 # Limoo (Android, Xray-based)
 
-Kotlin + Jetpack Compose + `VpnService`. **Not yet compiled or run** - written in a sandbox with no SDK or network access, so expect to fix a few build errors on first open.
+Kotlin + Jetpack Compose + `VpnService`. v0.2 UI/UX redesign below was written without an Android SDK, so it has **not been compiled** - expect a few build errors on the first CI run (the v0.1 core path was compiled and fixed by the maintainer).
 
 ## Build
 1. Open in Android Studio (AGP 8.5 / Kotlin 2.0 / JDK 17).
@@ -17,6 +17,29 @@ Kotlin + Jetpack Compose + `VpnService`. **Not yet compiled or run** - written i
 - **Connection:** VPN or proxy-only mode, MTU, IPv6, DNS, ports, LAN sharing, TLS fragment, mux, sniffing, log level
 - **Per-app proxy:** searchable app picker with icons, allow or deny mode
 - **Extras:** live speed and session traffic, Quick Settings tile, disconnect action in the notification, Always-on VPN restart, light/dark/dynamic theme, RTL layout flag, launcher icon
+
+## v0.2 - Nothing-style redesign
+**Look:** pure black / paper-white surfaces, hairline borders, pill shapes, mono caps labels, one accent (red by default; lime or mono in Settings). Status and numbers use an in-app **dot-matrix font** drawn on a Canvas (no font files). The connect control is a ring of dots: dim = off, comet = connecting, full = connected, red = error. Haptic ticks on toggles.
+
+**Home:** one-tap ring, uptime, current server card (tap to switch from a searchable sheet; switching while connected reconnects), live speed and session traffic, real-delay test, subscription data/expiry bar, quick tiles (auto-best, route preset, ad block, fragment) that tell you when a reconnect is needed.
+
+**Servers (much easier management):**
+- search, filter chips (all / favorites / each group or subscription), sort (manual, latency, name, recently used)
+- grouped sections that collapse; favorites pinned first
+- swipe right = favorite, swipe left = delete with **Undo**; long-press = multi-select (favorite, ping, share, group, delete)
+- per-row latency as a 5-dot meter, ping selected/visible/all, "select best"
+- tools: remove duplicates, remove unreachable, delete all (undoable)
+- **subscriptions as first-class objects:** name, last update, data usage and expiry from `subscription-userinfo`, per-sub auto-update, update/edit/delete (keep or remove servers). Updates merge by server identity so selection, favorites and pings survive.
+
+**Importing:**
+- **Clipboard detection:** when Limoo comes to the front and the clipboard holds a config, a banner offers one-tap import (never automatic; plain URLs are ignored; can be turned off)
+- one **Add** sheet: paste from clipboard (shows what was detected), scan QR, file, subscription link, manual entry
+- every import shows a **preview**: pick which servers, spot "already added", set a group, see note/expiry, unlock password-protected files, optionally restore settings from a backup
+- "Fill from clipboard link" in the server editor
+
+**Sharing/backup:** share with title, note, optional password and expiry (never / 1 / 7 / 30 days) as file or link; QR as standard or `.limoo` link; full backup (servers + subscriptions + settings) and restore through the same preview.
+
+**Settings:** category pages instead of one long scroll; option sheets instead of dropdowns; privacy mode (masks server addresses), auto-connect on app start, haptics, accent and theme.
 
 ## Fixes applied after the first CI run
 - `initCoreEnv` needs an XUDP base key that is 32 bytes encoded as **unpadded base64url** (43 chars) - Xray runs

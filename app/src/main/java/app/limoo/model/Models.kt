@@ -16,6 +16,16 @@ data class Server(
     val pbk: String = "", val sid: String = "", val spx: String = "",
     val allowInsecure: Boolean = false,
     val group: String = "", val note: String = "", val pingMs: Long = -1,
+    val fav: Boolean = false, val lastUsed: Long = 0, val subId: String = "",
+)
+
+@Serializable
+data class Subscription(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val name: String, val url: String,
+    val updatedAt: Long = 0,                                        // epoch seconds
+    val upload: Long = 0, val download: Long = 0, val total: Long = 0, val expire: Long = 0,   // from subscription-userinfo
+    val autoUpdate: Boolean = true, val error: String = "",
 )
 
 @Serializable
@@ -43,5 +53,8 @@ data class AppSettings(
     val directRules: String = "", val proxyRules: String = "", val blockRules: String = "",
     // routing data + testing
     val geoSource: String = "chocolate4u", val geoAutoUpdate: Boolean = true,
+    // ui / behaviour
+    val accent: String = "red", val haptics: Boolean = true, val privacyMode: Boolean = false,
+    val autoConnect: Boolean = false, val clipboardWatch: Boolean = true, val sortBy: String = "manual",
     val testUrl: String = "https://www.gstatic.com/generate_204", val autoSelect: Boolean = false,
 )

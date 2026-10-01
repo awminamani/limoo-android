@@ -34,11 +34,6 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle.properties') }}
           restore-keys: gradle-${{ runner.os }}-
 
-      - name: Prepare Gradle wrapper (wrapper jar is not committed)
-        run: |
-          gradle wrapper --gradle-version 8.7 --distribution-type bin
-          chmod +x gradlew
-
       - name: Fetch Xray core
         run: ./gradlew fetchXrayCore --no-daemon
         continue-on-error: true

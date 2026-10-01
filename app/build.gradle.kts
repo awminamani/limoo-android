@@ -7,7 +7,7 @@ plugins {
 android {
     namespace = "app.limoo"; compileSdk = 34
     defaultConfig {
-        applicationId = "app.limoo"; minSdk = 26; targetSdk = 34; versionCode = 1; versionName = "0.1.0"
+        applicationId = "app.limoo"; minSdk = 26; targetSdk = 34; versionCode = 2; versionName = "0.2.0"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
     signingConfigs { getByName("debug") }   // reuse the debug keystore for release so CI's APK is installable

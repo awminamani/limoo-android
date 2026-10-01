@@ -1,6 +1,7 @@
 package app.limoo.format
 
 import android.net.Uri
+import app.limoo.model.AppSettings
 import app.limoo.model.Server
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -24,6 +25,7 @@ data class LimooPayload(
     val limoo: Int = 1, val name: String = "", val note: String = "",
     val expires: Long = 0,                       // epoch seconds, 0 = never
     val servers: List<Server> = emptyList(), val subscriptions: List<String> = emptyList(),
+    val settings: AppSettings? = null,           // present in full backups
 )
 
 /** Password-protected wrapper: AES-256-GCM, key = PBKDF2-HMAC-SHA256(password, salt, iter). */

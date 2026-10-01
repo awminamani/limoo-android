@@ -18,6 +18,7 @@ class LimooVpnService : VpnService() {
     companion object {
         const val ACTION_START = "app.limoo.START"; const val ACTION_STOP = "app.limoo.STOP"
         val state = MutableStateFlow(State.Idle); val error = MutableStateFlow<String?>(null)
+        val connectedAt = MutableStateFlow(0L)      // epoch ms, 0 when not connected
     }
 
     private var tun: ParcelFileDescriptor? = null
@@ -53,6 +54,7 @@ class LimooVpnService : VpnService() {
                 if (st.mode == "vpn") tun = buildTun(st) ?: throw IllegalStateException("VPN permission was revoked")
                 engine.start(XrayConfigBuilder.build(server, st, tun != null), tun?.fd ?: -1, st)
                 nm.notify(1, notification(server.name))
+                connectedAt.value = System.currentTimeMillis(); store.touch(server.id)
                 state.value = State.Connected
             } catch (c: CancellationException) { throw c
             } catch (t: Throwable) { fail(t.message ?: t.javaClass.simpleName) }
@@ -74,7 +76,7 @@ class LimooVpnService : VpnService() {
     private fun fail(msg: String) { error.value = msg; state.value = State.Error; stopVpn(keepError = true) }
 
     private fun stopVpn(keepError: Boolean = false) {
-        job?.cancel(); job = null
+        job?.cancel(); job = null; connectedAt.value = 0
         runCatching { engine.stop() }; runCatching { tun?.close() }; tun = null
         if (!keepError) state.value = State.Idle
         stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
