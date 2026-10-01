@@ -18,6 +18,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 
 class LimooVpnService : VpnService() {
     enum class State { Idle, Connecting, Connected, Error }
+
+    private companion object {
+        /** Must match the number of <View> children in res/layout/notif.xml. */
+        const val STRIP_DOTS = 24
+        const val ACCENT = 0xFFE5484D.toInt()
+        const val TRACK = 0xFF2A2A2A.toInt()
+    }
     companion object {
         const val ACTION_START = "app.limoo.START"; const val ACTION_STOP = "app.limoo.STOP"
         val state = MutableStateFlow(State.Idle); val error = MutableStateFlow<String?>(null)
@@ -44,6 +51,16 @@ class LimooVpnService : VpnService() {
      * the dot-matrix font, so the counters use monospace here - the identity comes from the custom view,
      * the flat black background and the hairline separator rather than from a stock notification.
      */
+    /** Minimal notification with no custom views - the safe path if RemoteViews inflation ever fails. */
+    private fun plainNotification(text: String, sub: String? = null): Notification =
+        Notification.Builder(this, "limoo")
+            .setSmallIcon(R.drawable.ic_stat)
+            .setContentTitle(if (text.isBlank()) "Limoo" else "Limoo - $text")
+            .setContentText(sub ?: text)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .build()
+
     private fun notification(text: String, sub: String? = null): Notification {
         val stop = android.app.PendingIntent.getService(this, 0, Intent(this, LimooVpnService::class.java).setAction(ACTION_STOP), android.app.PendingIntent.FLAG_IMMUTABLE)
         val open = android.app.PendingIntent.getActivity(this, 1, Intent(this, app.limoo.ui.MainActivity::class.java), android.app.PendingIntent.FLAG_IMMUTABLE)
@@ -80,7 +97,12 @@ class LimooVpnService : VpnService() {
         state.value = State.Connecting; error.value = null
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel("limoo", "Limoo VPN", NotificationManager.IMPORTANCE_LOW))
-        ServiceCompat.startForeground(this, 1, notification("Connecting..."), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        // The custom notification is cosmetic, but startForeground() is mandatory and throwing here kills
+        // the app on connect. Fall back to a plain notification so a styling problem can never be fatal,
+        // and remember that we fell back so later updates stay on the safe path.
+        val fg = try { notification("Connecting...") } catch (t: Throwable) { plainNotification("Connecting...") }
+        runCatching { ServiceCompat.startForeground(this, 1, fg, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE) }
+            .onFailure { runCatching { startForeground(1, plainNotification("Connecting...")) } }
         job = scope.launch {
             try {
                 val st = store.settings.value
@@ -93,7 +115,7 @@ class LimooVpnService : VpnService() {
                 serverName.value = server.name
                 connectedAt.value = System.currentTimeMillis(); store.touch(server.id)
                 state.value = State.Connected
-                nm.notify(1, notification(server.name))
+                runCatching { nm.notify(1, notification(server.name)) }
                 startCounterLoop(nm)
             } catch (c: CancellationException) { throw c
             } catch (t: Throwable) { fail(t.message ?: t.javaClass.simpleName) }
@@ -133,13 +155,27 @@ class LimooVpnService : VpnService() {
                 if (lastPost == 0L || elapsed >= 3000L) {
                     lastPost = t; lastDown = now.down
                     val notif = notification(serverName.value, "${fmtRate(bytesPerSec)}  ${fmtBytes(now.up + now.down)}")
-                    // Dot strip fills with throughput; 1 MB/s reads as a full bar.
-                    notif.contentView?.setFloat(R.id.nBars, "setFraction", (bytesPerSec.toFloat() / (1024f * 1024f)).coerceIn(0f, 1f))
-                    nm.notify(1, notif)
+                    paintDotStrip(notif, (bytesPerSec.toFloat() / (1024f * 1024f)).coerceIn(0f, 1f))
+                    runCatching { nm.notify(1, notif) }
                 }
             }
         }
     }
+
+    /**
+     * Lights the dot strip. Each dot is a plain <View> in the layout tinted with setInt, because a
+     * custom View class cannot be inflated by SystemUI (see notif.xml).
+     */
+    private fun paintDotStrip(notif: Notification, fraction: Float) {
+        val v = notif.contentView ?: return
+        val lit = (fraction * STRIP_DOTS).toInt()
+        for (i in 0 until STRIP_DOTS) {
+            v.setInt(dotId(i), "setBackgroundColor", if (i < lit) ACCENT else TRACK)
+        }
+    }
+
+    /** d0..dN resource ids, generated to match the row of dots in notif.xml. */
+    private fun dotId(i: Int): Int = resources.getIdentifier("d$i", "id", packageName)
 
     private fun fmtRate(bytesPerTick: Long): String {
         val kb = bytesPerTick / 1024

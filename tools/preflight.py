@@ -103,5 +103,23 @@ for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
             line_no = text[:m.start()].count("\n") + 1
             fail.append(f"{f}:{line_no} JVM clash: property '{prop}' already generates {setter}(...)")
 
+# ---- 6. notification layouts may only use platform widgets ----
+# RemoteViews is inflated by SystemUI in another process: an app-defined View subclass in a notification
+# layout compiles fine and then crashes the app at inflation time (i.e. on connect, inside
+# startForeground). Only these tags are safe.
+REMOTE_VIEWS_OK = {
+    "LinearLayout", "FrameLayout", "RelativeLayout", "GridLayout", "TableLayout", "TableRow",
+    "TextView", "ImageView", "Button", "ImageButton", "EditText", "ProgressBar", "View",
+    "AnalogClock", "Chronometer", "ImageClock", "TextClock", "ViewFlipper", "ViewSwitcher",
+    "ListView", "GridView", "StackView", "AdapterViewFlipper", "Space", "RatingBar",
+}
+for xml in glob.glob("/tmp/work/app/src/main/res/layout/*.xml"):
+    if "notif" not in xml and "tile" not in xml: continue
+    for tag in re.findall(r"<([a-zA-Z][A-Za-z0-9_.]*)", open(xml).read()):
+        if tag.startswith("?"): continue
+        simple = tag.split(".")[-1]
+        if tag.startswith("android.") or simple in REMOTE_VIEWS_OK: continue
+        fail.append(f"{xml}: <{tag}> is not a RemoteViews-safe widget (crashes SystemUI inflation)")
+
 print("\n".join(fail) if fail else "preflight: all checks passed")
 sys.exit(1 if fail else 0)
