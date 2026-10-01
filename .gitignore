@@ -12,3 +12,11 @@ app/libs/*.aar.tmp
 *.keystore
 keystore.properties
 *.jks
+
+# Release signing - NEVER commit these. The keystore is backed up outside the repo; if it leaks, anyone can
+# ship an "update" to the app. See tools/make-keystore.sh.
+*.jks
+*.keystore
+limoo-release.jks
+*.jks.base64
+keystore.properties
