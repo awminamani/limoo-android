@@ -8,6 +8,28 @@ do not introduce a new colour, radius or font without extending `Nothing.kt` fir
 
 ---
 
+## 0. Where this language comes from
+
+Nothing's design language (NDot / NType, dot-grid iconography, Glyph Interface). The transferable ideas,
+in the order they matter for this app:
+
+1. **Dot matrix as DNA, not as a font choice.** The dot grid is the *material* the UI is made from:
+   indicators, meters, bars, icons and readouts are all dots on one pitch. That is why `NDots`,
+   `DotMeter`, `DotBar`, `NSpinner`, `NGlyph`, `NDotsProgress`, `DotStripView` and the connect ring all
+   derive from the same lattice rather than each inventing a look.
+2. **Transparency over opacity** - show the system, not a veneer. No gradients anywhere, ever.
+3. **Monochrome first; colour is a signal.** At most one accent per view, and only when it means something.
+4. **Pure black canvas** (`#000000`), never dark grey. Dark mode is the default mode.
+5. **Function is form.** Layout choices are ergonomic first.
+6. **Radical reduction** - every element must earn its place. Nothing decorative.
+
+Reference palette (Nothing OS): `#000000` canvas, `#0D0D0D`/`#1A1A1A`/`#242424` surfaces,
+`#2E2E2E` border, `#FFFFFF` text, `#999999` secondary, `#555555` muted, `#FF3030` accent used sparingly.
+
+Rules worth internalising: NDot-style display type only at large sizes; borders 1px, never thicker;
+opacity transitions (never background flashes); no spring or bounce easing - cubic 150-400ms only;
+labels uppercase at 0.06-0.10em tracking; no emoji in UI copy; no circular/rounded icon packs - dot-grid only.
+
 ## 1. Non-negotiables
 
 1. **No font files.** All "display" type is the 5x7 dot-matrix drawn on a Compose `Canvas` (`DotText`,
@@ -74,8 +96,13 @@ actions, the connect ring when failed. Do **not** use it for ordinary labels or 
 
 `NCard` `NButton` `NChip` `NSwitch` `NCheck` `NRadio` `NDots` `NRow` `NField` `NSearch` `NSheet`
 `SheetRow` `ChoiceRow` `ToggleRow` `FieldRow` `NumberRow` `Divider` `NDivider`
-`DotText` `DotTextFixed` `DotMeter` `DotBar` `NSpinner` `NBusy` `NBusyBlock` `NRule` `NBrackets` `NStat`
-`SubAllowance`
+`DotText` `DotTextFixed` `DotMeter` `DotBar` `DotStripView` `NSpinner` `NBusy` `NBusyBlock`
+`NRule` `NBrackets` `NStat` `NReadout` `NGlyph` `NFadeDots` `NDotsProgress` `SubAllowance`
+
+### Icons
+There are no icon fonts. Icons are **dot-matrix glyphs** (`NGlyph`) or hand-built dot vectors in
+`res/drawable` (`ic_launcher` = dot-grid "L", `ic_stat` = its status-bar reduction, `ic_tile` = dot ring).
+Never introduce a Material icon here.
 
 Add new UI as a component here rather than inline in a screen, so the vocabulary stays closed.
 
@@ -93,3 +120,10 @@ Add new UI as a component here rather than inline in a screen, so the vocabulary
 - `DotText` inside a `Row` without a width constraint will push siblings off screen.
 - The Xray core's `initCoreEnv` base key must be 32 bytes as **unpadded base64url** (43 chars), not hex.
   See `CoreEngine.xudpBaseKey`.
+- Traffic-stat keys from the core are **`uplink` / `downlink`**, not `up` / `down`. Getting this wrong
+  fails silently - `CoreStats.parse` returns null and no counter appears at all.
+- The delay probe needs `initCoreEnv` to have run (`CoreDelay` does it once per process) and must use
+  `XrayConfigBuilder.buildProbe`, which has no inbounds - a probe that binds the SOCKS port collides with
+  the running core.
+- Ring/grid geometry must be derived from a single pitch and centred; two independent radii produce a ring
+  that looks lopsided. Verify symmetry by mirroring the point set about both axes before shipping.
