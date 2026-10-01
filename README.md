@@ -18,6 +18,13 @@ Kotlin + Jetpack Compose + `VpnService`. **Not yet compiled or run** - written i
 - **Per-app proxy:** searchable app picker with icons, allow or deny mode
 - **Extras:** live speed and session traffic, Quick Settings tile, disconnect action in the notification, Always-on VPN restart, light/dark/dynamic theme, RTL layout flag, launcher icon
 
+## Fixes applied after the first CI run
+- `initCoreEnv` needs a **32-byte** XUDP base key (64 hex chars). `ANDROID_ID` was passed and made every
+  connect fail with `xray.xudp.basekey: invalid value (BaseKey must be 32 bytes)`. A stable random 32-byte key
+  is now generated once per install and persisted (`core/CoreEngine.kt`).
+- The release APK was unsigned, so Android refused to install it. `app/build.gradle.kts` now signs release with
+  the debug keystore so the CI artifact is installable (replace with your own keystore for real releases).
+
 ## Known gaps
 - Core binding is reflection-based against the recent `CoreController` API (`Libv2ray.newCoreController`, `startLoop(config, tunFd)`) with Xray's own `tun` inbound. I could not inspect the AAR, so if your AAR version differs, adjust `core/CoreEngine.kt`; errors show on the Home screen.
 - Traffic numbers come from Android's per-app counters (approximate), not Xray stats.

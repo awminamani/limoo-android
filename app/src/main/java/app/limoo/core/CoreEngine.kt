@@ -1,7 +1,6 @@
 package app.limoo.core
 
 import android.content.Context
-import android.provider.Settings
 import app.limoo.model.AppSettings
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Proxy
@@ -30,7 +29,10 @@ class LibXrayEngine(private val ctx: Context) : CoreEngine {
     override fun start(configJson: String, tunFd: Int, st: AppSettings) {
         stop()
         val l = lib()
-        val key = Settings.Secure.getString(ctx.contentResolver, Settings.Secure.ANDROID_ID) ?: "limoo"
+        // Xray reads the second initCoreEnv argument as xray.xudp.basekey and demands exactly 32 bytes
+        // (64 hex chars). ANDROID_ID is 16-or-so hex chars, so passing it directly makes core init fail with
+        // "xray.xudp.basekey: invalid value (BaseKey must be 32 bytes)". Use a stable random 32-byte key instead.
+        val key = xudpBaseKey(ctx)
         (l.methods.firstOrNull { it.name == "initCoreEnv" } ?: l.methods.firstOrNull { it.name == "initV2Env" })
             ?.let { call(it, null, GeoManager.dir(ctx).absolutePath, key) }
         val factory = l.methods.firstOrNull { it.name == "newCoreController" }
@@ -42,6 +44,18 @@ class LibXrayEngine(private val ctx: Context) : CoreEngine {
         val two = loops.firstOrNull { it.parameterCount == 2 }
         if (two != null) call(two, c, configJson, tunFd) else call(loops.first(), c, configJson)
         controller = c
+    }
+
+    /** Stable per-install 32-byte XUDP base key, hex encoded (64 chars). Generated once, then persisted. */
+    private fun xudpBaseKey(ctx: Context): String {
+        val sp = ctx.getSharedPreferences("limoo_core", Context.MODE_PRIVATE)
+        sp.getString("xudpBaseKey", null)?.let { if (it.length == 64) return it }
+        val key = java.security.SecureRandom().let { rnd ->
+            val b = ByteArray(32); rnd.nextBytes(b)
+            b.joinToString("") { "%02x".format(it) }
+        }
+        sp.edit().putString("xudpBaseKey", key).apply()
+        return key
     }
 
     override fun stop() {
