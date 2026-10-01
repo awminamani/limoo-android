@@ -160,7 +160,11 @@ object CoreStats {
         val text = raw.trim()
         var up = 0L; var down = 0L
         if (text.isEmpty()) return CoreTraffic(0, 0)
-        if (text.contains(',')) {
+        // Shape must be decided by the leading '{', not by the presence of a comma: JSON separators and
+        // quoted keys contain commas too, so contains(',') misroutes JSON into the CSV branch and every
+        // count is lost. (The JSON-fallback unit test caught exactly this.)
+        val isJson = text.startsWith("{")
+        if (!isJson) {
             text.split(';').forEach { rec ->
                 val p = rec.trim().split(',')
                 if (p.size != 3) return@forEach
