@@ -7,7 +7,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
-import android.app.RemoteViews
+import android.view.RemoteViews
 import androidx.core.app.ServiceCompat
 import app.limoo.LimooApp
 import app.limoo.R
@@ -125,13 +125,13 @@ class LimooVpnService : VpnService() {
                 val t = System.currentTimeMillis()
                 val delta = (now.down - lastDown).coerceAtLeast(0)
                 val elapsed = t - lastPost
-                val bytesPerSec = if (elapsed > 0) delta * 1000 / elapsed else 0
+                val bytesPerSec = if (elapsed > 0) delta * 1000L / elapsed else 0L
                 // Repost at most every 3s, but immediately on the first sample so the shade is never empty.
                 if (lastPost == 0L || elapsed >= 3000L) {
                     lastPost = t; lastDown = now.down
                     val notif = notification(serverName.value, "${fmtRate(bytesPerSec)}  ${fmtBytes(now.up + now.down)}")
                     // Dot strip fills with throughput; 1 MB/s reads as a full bar.
-                    notif.contentView?.setFloat(R.id.nBars, "setFraction", (bytesPerSec / (1024L * 1024L)).coerceIn(0f, 1f))
+                    notif.contentView?.setFloat(R.id.nBars, "setFraction", (bytesPerSec.toFloat() / (1024f * 1024f)).coerceIn(0f, 1f))
                     nm.notify(1, notif)
                 }
             }
