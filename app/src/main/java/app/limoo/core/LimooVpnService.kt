@@ -19,13 +19,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 class LimooVpnService : VpnService() {
     enum class State { Idle, Connecting, Connected, Error }
 
-    private companion object {
+    companion object {
         /** Must match the number of <View> children in res/layout/notif.xml. */
         const val STRIP_DOTS = 24
         const val ACCENT = 0xFFE5484D.toInt()
         const val TRACK = 0xFF2A2A2A.toInt()
-    }
-    companion object {
+
         const val ACTION_START = "app.limoo.START"; const val ACTION_STOP = "app.limoo.STOP"
         val state = MutableStateFlow(State.Idle); val error = MutableStateFlow<String?>(null)
         val connectedAt = MutableStateFlow(0L)      // epoch ms, 0 when not connected

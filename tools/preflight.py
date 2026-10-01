@@ -121,5 +121,13 @@ for xml in glob.glob("/tmp/work/app/src/main/res/layout/*.xml"):
         if tag.startswith("android.") or simple in REMOTE_VIEWS_OK: continue
         fail.append(f"{xml}: <{tag}> is not a RemoteViews-safe widget (crashes SystemUI inflation)")
 
+# ---- 7. a class may declare only one companion object ----
+# Two companions is a hard compile error, and it takes every reference to that class's static members
+# with it (they resolve as "Unresolved reference" far away from the real cause).
+for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
+    n = len(re.findall(r"^\s*companion\s+object\b", strip_comments(open(f).read()), re.M))
+    if n > 1:
+        fail.append(f"{f}: {n} companion objects (only one is allowed)")
+
 print("\n".join(fail) if fail else "preflight: all checks passed")
 sys.exit(1 if fail else 0)
