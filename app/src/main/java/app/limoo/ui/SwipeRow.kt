@@ -29,10 +29,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.toDp
 import kotlin.math.abs
 
 /**
@@ -69,12 +69,15 @@ fun SwipeActionRow(
     val n = LocalN.current
     val tick = rememberTick(strong = true)
 
-    var rowWidth by remember { mutableStateOf(0) }
+    val density = LocalDensity.current
+    var rowWidthPx by remember { mutableStateOf(0) }
     var offset by remember { mutableFloatStateOf(0f) }
     var dir by remember { mutableStateOf(SwipeDir.NONE) }
     var open by remember { mutableStateOf(false) }   // the action button is showing
 
-    val travelPx = rowWidth * ARM_THRESHOLD
+    // Gesture maths stays in pixels (translationX is px); layout widths need Dp, so convert once here.
+    val travelPx = rowWidthPx * ARM_THRESHOLD
+    val travelDp = with(density) { travelPx.toDp() }
 
     val shown by animateFloatAsState(
         targetValue = offset,
@@ -95,7 +98,7 @@ fun SwipeActionRow(
         tick()
     }
 
-    Box(modifier.fillMaxWidth().onSizeChanged { rowWidth = it.width }) {
+    Box(modifier.fillMaxWidth().onSizeChanged { rowWidthPx = it.width }) {
         // Action layer, behind the row. When the row is open the button fills the revealed area and is
         // tappable; while dragging it is a plain, inert hint.
         if (dir != SwipeDir.NONE) {
@@ -108,8 +111,7 @@ fun SwipeActionRow(
                 Box(
                     Modifier
                         .fillMaxHeight()
-                        // travelPx is raw pixels from onSizeChanged; Modifier.width needs Dp.
-                        .width((if (open) travelPx else travelPx * 0.9f).coerceAtLeast(1f).toDp())
+                        .width((if (open) travelDp else travelDp * 0.9f).coerceAtLeast(1.dp))
                         .clip(RoundedCornerShape(Radius.card))
                         .background(if (isShare) n.surface2 else n.accent)
                         // Only interactive once fully open, so a drag can never fire the action.
@@ -149,8 +151,8 @@ fun SwipeActionRow(
                     scaleX = 1f - p * 0.02f
                 }
                 .then(
-                    if (!enabled || rowWidth == 0) Modifier
-                    else Modifier.pointerInput(rowWidth, open) {
+                    if (!enabled || rowWidthPx == 0) Modifier
+                    else Modifier.pointerInput(rowWidthPx, open) {
                         detectHorizontalDragGestures(
                             onDragStart = { if (!open) { offset = 0f; dir = SwipeDir.NONE } },
                             onDragEnd = {

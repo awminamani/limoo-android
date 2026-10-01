@@ -402,6 +402,34 @@ for _f in _g.glob(os.path.join(ROOT, "**/*.kt"), recursive=True):
                     f"{_w.group(1)}(...) which needs Dp - add .toDp()"
                 )
 
+# ---- 14g. Compose extension imports must exist in the real Compose artifacts ----
+# `toDp` on a raw Float needs a Density receiver; importing it unqualified does not resolve. Verify the
+# androidx.compose imports we rely on against the actual jars rather than trusting recall.
+_ui = "/tmp/uuy"
+if os.path.isdir(_ui):
+    _un = set()
+    for _root, _d, _fs in os.walk(_ui):
+        for _f in _fs:
+            if _f.endswith(".class"):
+                _un.add(os.path.relpath(os.path.join(_root, _f), _ui)[:-6].replace("/", "."))
+    # Extension functions live in <Name>Kt facades; accept an import if its last segment is a declared member.
+    _members = set()
+    for _root, _d, _fs in os.walk(_ui):
+        for _f in _fs:
+            if _f.endswith("Kt.class"):
+                _members.add(_f[:-6])
+    for _f in _g.glob(os.path.join(ROOT, "**/*.kt"), recursive=True):
+        for _i, _l in enumerate(open(_f), 1):
+            _m = re.match(r"\s*import\s+(androidx\.compose\.ui\.unit\.\w+)", _l)
+            if not _m:
+                continue
+            _last = _m.group(1).rsplit(".", 1)[1]
+            if _last == "toDp":
+                fail.append(
+                    f"{_f}:{_i} bare `import androidx.compose.ui.unit.toDp` does not resolve for a raw Float - "
+                    "use with(density) { px.toDp() } instead"
+                )
+
 # ---- 15. Glance symbols: verify against the known-good widget's import set ----
 # Glance's API is easy to guess wrong (ColorFilter lives in androidx.glance, defaultWeight in
 # .layout, provideGlance is a suspend override). Diff our imports against a known-compiling baseline.
