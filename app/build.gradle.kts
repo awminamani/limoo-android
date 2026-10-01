@@ -1,3 +1,5 @@
+import java.net.URL
+
 plugins {
     id("com.android.application"); id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.serialization"); id("org.jetbrains.kotlin.plugin.compose")
@@ -10,7 +12,7 @@ android {
     }
     buildTypes { release { isMinifyEnabled = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    kotlinOptions { jvmTarget = "17" }
+    kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
     buildFeatures { compose = true }
 }
 dependencies {
@@ -36,7 +38,7 @@ tasks.register("fetchXrayCore") {
     doLast {
         coreAar.parentFile.mkdirs()
         val tmp = File(coreAar.parentFile, "libv2ray.aar.tmp")
-        java.net.URL(coreUrl).openStream().use { i -> tmp.outputStream().use { o -> i.copyTo(o) } }
+        URL(coreUrl).openStream().use { i -> tmp.outputStream().use { o -> i.copyTo(o) } }
         check(tmp.length() > 1_000_000) { "Downloaded core is too small - set limoo.coreUrl in gradle.properties" }
         tmp.renameTo(coreAar)
     }
