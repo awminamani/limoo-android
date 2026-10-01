@@ -32,6 +32,17 @@ class LibXrayEngine(private val ctx: Context) : CoreEngine {
     private fun call(m: java.lang.reflect.Method, target: Any?, vararg a: Any?): Any? =
         try { m.invoke(target, *a) } catch (e: InvocationTargetException) { throw e.targetException }
 
+    /**
+     * Initialises the core environment (asset paths + xudp key) without starting a loop. The delay probe
+     * needs this to have run, otherwise it fails on geo lookups - which is why real ping used to report
+     * nothing until a VPN connection had already been established once. Safe to call repeatedly.
+     */
+    fun ensureEnv(ctx: Context) {
+        val l = lib()
+        (l.methods.firstOrNull { it.name == "initCoreEnv" } ?: l.methods.firstOrNull { it.name == "initV2Env" })
+            ?.let { call(it, null, GeoManager.dir(ctx).absolutePath, xudpBaseKey(ctx)) }
+    }
+
     override fun start(configJson: String, tunFd: Int, st: AppSettings) {
         stop()
         val l = lib()
@@ -94,25 +105,38 @@ class LibXrayEngine(private val ctx: Context) : CoreEngine {
  * from the UI layer for any server without disturbing the running core. -1 = failed or unavailable.
  */
 object CoreDelay {
-    fun measure(configJson: String, url: String): Long = try {
+    /** Initialise the core env once per process; without it measureOutboundDelay cannot resolve geo data. */
+    @Volatile private var envReady = false
+
+    fun measure(ctx: Context, configJson: String, url: String): Long = try {
+        if (!envReady) { LibXrayEngine(ctx).ensureEnv(ctx); envReady = true }
         val l = Class.forName("libv2ray.Libv2ray")
         val m = l.methods.first { it.name == "measureOutboundDelay" }
         (m.invoke(null, configJson, url) as Number).toLong()
     } catch (e: Throwable) { -1L }
 }
 
-/** Parser for the core's traffic-statistics JSON. Lenient on purpose: shapes differ between core builds. */
+/**
+ * Parser for the core's traffic-statistics JSON.
+ *
+ * The keys are `uplink` / `downlink` (Xray's own stat names, confirmed against the strings in
+ * libgojni.so) - NOT `up` / `down`. Matching the wrong names silently returns null, which is why an
+ * earlier version of this showed no counter at all. Both spellings are accepted so a future core
+ * rename cannot break it again.
+ */
 object CoreStats {
-    private val num = Regex("\"?(up|down)\"?\\s*:\\s*(\\d+)")
+    private val num = Regex("\"?(up|down|uplink|downlink)\"?\\s*:\\s*(\\d+)", RegexOption.IGNORE_CASE)
 
     fun parse(raw: String): CoreTraffic? {
         val text = raw.trim()
         if (text.isEmpty() || text == "{}" || text.startsWith("error", true)) return null
-        // Preferred shape: { "<tag>": { "up": N, "down": N }, ... } - sum every counter we can find.
         var up = 0L; var down = 0L; var seen = false
         num.findAll(text).forEach { m ->
             val v = m.groupValues[2].toLongOrNull() ?: return@forEach
-            if (m.groupValues[1] == "up") up += v else down += v
+            when (m.groupValues[1].lowercase()) {
+                "up", "uplink" -> up += v
+                else -> down += v
+            }
             seen = true
         }
         return if (seen) CoreTraffic(up, down) else null

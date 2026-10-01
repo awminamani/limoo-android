@@ -111,7 +111,7 @@ class Store(ctx: Context) {
 
     /** Real delay, falling back to TCP when the core probe is unavailable (-1) or fails (0). */
     private suspend fun pingReal(s: Server, st: AppSettings): Long {
-        val ms = Latency.real(s, st, appContext.filesDir.absolutePath, st.testUrl)
+        val ms = Latency.real(appContext, s, st, st.testUrl)
         return if (ms > 0) ms else if (ms == 0L) 0L else Latency.tcp(s)
     }
 

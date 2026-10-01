@@ -1,3 +1,19 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#FFFFFF" android:pathData="M13,3h-2v10h2V3zm4.83,2.17l-1.42,1.42C17.99,7.86 19,9.81 19,12c0,3.87 -3.13,7 -7,7s-7,-3.13 -7,-7c0,-2.19 1.01,-4.14 2.58,-5.42L6.17,5.17C4.23,6.82 3,9.26 3,12c0,4.97 4.03,9 9,9s9,-4.03 9,-9c0,-2.74 -1.23,-5.18 -3.17,-6.83z"/>
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Quick Settings tile: a dot-matrix ring, matching the connect control on Home. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFF" android:pathData="M12,2.6m-1.15,0a1.15,1.15 0,1 1,2.3 0a1.15,1.15 0,1 1,-2.3 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M16.1,4m-1.15,0a1.15,1.15 0,1 1,2.3 0a1.15,1.15 0,1 1,-2.3 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M19.4,7.9m-1.15,0a1.15,1.15 0,1 1,2.3 0a1.15,1.15 0,1 1,-2.3 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M20,12m-1.15,0a1.15,1.15 0,1 1,2.3 0a1.15,1.15 0,1 1,-2.3 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M19.4,16.1m-1.15,0a1.15,1.15 0,1 1,2.3 0a1.15,1.15 0,1 1,-2.3 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M16.1,20m-1.15,0a1.15,1.15 0,1 1,2.3 0a1.15,1.15 0,1 1,-2.3 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M12,21.4m-1.15,0a1.15,1.15 0,1 1,2.3 0a1.15,1.15 0,1 1,-2.3 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M7.9,20m-1.15,0a1.15,1.15 0,1 1,2.3 0a1.15,1.15 0,1 1,-2.3 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M4.6,16.1m-1.15,0a1.15,1.15 0,1 1,2.3 0a1.15,1.15 0,1 1,-2.3 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M4,12m-1.15,0a1.15,1.15 0,1 1,2.3 0a1.15,1.15 0,1 1,-2.3 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M4.6,7.9m-1.15,0a1.15,1.15 0,1 1,2.3 0a1.15,1.15 0,1 1,-2.3 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M7.9,4m-1.15,0a1.15,1.15 0,1 1,2.3 0a1.15,1.15 0,1 1,-2.3 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M12,8.4m-2.6,0a2.6,2.6 0,1 1,5.2 0a2.6,2.6 0,1 1,-5.2 0" />
 </vector>

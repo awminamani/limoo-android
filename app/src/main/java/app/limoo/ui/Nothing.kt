@@ -87,7 +87,7 @@ fun NTheme(st: AppSettings, content: @Composable () -> Unit) {
         "amber" -> if (dark) Color(0xFFFFB300) else Color(0xFFB37400)
         "blue" -> if (dark) Color(0xFF3D7EFF) else Color(0xFF0B4FC7)
         "mono" -> base.text
-        else -> if (dark) Color(0xFFFF3B30) else Color(0xFFC8102E)
+        else -> if (dark) Color(0xFFE5484D) else Color(0xFFB32B33)
     }
     // Surfaces drift a few percent toward the accent so the colour is felt across the whole UI, not
     // confined to a single dot. Line is mixed a little more so borders read as tinted, not grey.
@@ -305,6 +305,51 @@ fun NBusyBlock(label: String, detail: String = "") {
         Spacer(Modifier.height(16.dp))
         Text(label.uppercase(), style = NType.label, color = n.text)
         if (detail.isNotEmpty()) Text(detail.uppercase(), style = NType.label, color = n.dim, modifier = Modifier.padding(top = 6.dp))
+    }
+}
+
+/**
+ * The signature element: a dot-matrix glyph rendered in place of an icon. This is the Nothing idea that
+ * matters most for this app - icons become type. Use it for list affordances and section markers.
+ */
+@Composable
+fun NGlyph(glyph: String, modifier: Modifier = Modifier, dot: Dp = 2.dp, color: Color = LocalN.current.dim) {
+    DotText(glyph, modifier, dot = dot, gap = dot / 2, color = color, spacing = 1)
+}
+
+/** Vertical dot column used as a quiet "there is more below" hint at the end of a list. */
+@Composable
+fun NFadeDots(count: Int = 3, modifier: Modifier = Modifier, color: Color = LocalN.current.line) {
+    Canvas(modifier.width(6.dp).height((count * 7).dp)) {
+        val r = 1.5.dp.toPx()
+        for (i in 0 until count) {
+            drawCircle(color.copy(alpha = 0.8f - i * 0.22f), r, Offset(size.width / 2, r + i * 6.dp.toPx()))
+        }
+    }
+}
+
+/**
+ * Dot-matrix readout with a label, used where a number matters and should feel instrumented rather than
+ * typeset. Width-bounded so it cannot overflow its row.
+ */
+@Composable
+fun NReadout(label: String, value: String, modifier: Modifier = Modifier, valueColor: Color = LocalN.current.text, width: Dp = 140.dp) {
+    val n = LocalN.current
+    Column(modifier) {
+        NLabel(label)
+        Spacer(Modifier.height(6.dp))
+        DotTextFixed(value.uppercase(), width, 14.dp, color = valueColor)
+    }
+}
+
+/** Thin progress rule made of dots - the app's alternative to a Material linear indicator. */
+@Composable
+fun NDotsProgress(fraction: Float, modifier: Modifier = Modifier, count: Int = 28, color: Color = LocalN.current.accent) {
+    val n = LocalN.current
+    val lit = (fraction.coerceIn(0f, 1f) * count).toInt()
+    Canvas(modifier.fillMaxWidth().height(6.dp)) {
+        val step = size.width / count; val r = (step * 0.3f).coerceAtMost(size.height / 2)
+        for (i in 0 until count) drawCircle(if (i < lit) color else n.line, r, Offset(i * step + step / 2, size.height / 2))
     }
 }
 

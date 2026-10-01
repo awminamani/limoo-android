@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Notification body. Flat black, hairline top border, monospace caps: the dot-matrix font cannot be
+     drawn by Android's notification renderer, so the identity here comes from shape and spacing. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#000000"
+    android:paddingStart="18dp"
+    android:paddingEnd="18dp"
+    android:paddingTop="12dp"
+    android:paddingBottom="12dp">
+
+    <TextView
+        android:id="@+id/nTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fontFamily="monospace"
+        android:textSize="14sp"
+        android:textColor="#FFFFFF"
+        android:letterSpacing="0.08"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:text="LIMOO" />
+
+    <TextView
+        android:id="@+id/nRate"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fontFamily="monospace"
+        android:textSize="12sp"
+        android:textColor="#FF3B30"
+        android:letterSpacing="0.08"
+        android:layout_marginTop="3dp"
+        android:maxLines="1"
+        android:text="" />
+
+    <TextView
+        android:id="@+id/nTotal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fontFamily="monospace"
+        android:textSize="11sp"
+        android:textColor="#8A8A8A"
+        android:letterSpacing="0.08"
+        android:layout_marginTop="2dp"
+        android:maxLines="1"
+        android:text="" />
+
+    <app.limoo.core.DotStripView
+        android:id="@+id/nBars"
+        android:layout_width="match_parent"
+        android:layout_height="10dp"
+        android:layout_marginTop="10dp" />
+</LinearLayout>

@@ -33,6 +33,9 @@ import app.limoo.model.Server
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.PI
+import kotlin.math.atan2
+import kotlin.math.ceil
+import kotlin.math.sqrt
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -96,18 +99,34 @@ private fun ConnectRing(state: State, enabled: Boolean, onClick: () -> Unit, mod
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            val c = center; val dots = 56
-            fun ring(count: Int, r: Float, dotR: Float, baseAlpha: Float) {
-                for (i in 0 until count) {
-                    val f = i.toFloat() / count; val a = f * 2f * PI.toFloat() - PI.toFloat() / 2f
-                    var alpha = when (state) { State.Connected -> 1f; State.Error -> .9f; else -> baseAlpha }
-                    if (connecting) { val d = ((spin - f) % 1f + 1f) % 1f; alpha = if (d < .4f) 1f - d / .4f * .85f else baseAlpha }
-                    drawCircle(lit.copy(alpha = alpha), dotR, Offset(c.x + r * cos(a), c.y + r * sin(a)))
+            val c = center
+            val pitch = 11.dp.toPx()                       // one lattice pitch for every dot on screen
+            val rDot = pitch * 0.30f
+            val rOuter = size.minDimension / 2f - pitch
+            val rInner = rOuter * 0.62f
+            // Every dot is placed on a square lattice centred on the canvas, then kept only if its radius
+            // falls in the ring band. Deriving positions from one pitch is what keeps the ring symmetric:
+            // the previous version used two unrelated radii (outer and outer*0.80), so the inner dots sat
+            // off-grid against the outer ones and the ring read as lopsided.
+            val reach = rOuter + pitch
+            val cells = ceil(reach / pitch).toInt()
+            for (gy in -cells..cells) for (gx in -cells..cells) {
+                val x = gx * pitch; val y = gy * pitch
+                val r = sqrt(x * x + y * y)
+                val inOuter = r <= rOuter && r >= rInner - pitch * 0.5f
+                val inInner = r < rInner - pitch * 0.5f && r >= rInner - pitch * 1.45f
+                if (!inOuter && !inInner) continue
+                // Phase runs clockwise from 12 o'clock, in the same 0..1 space as the connect animation.
+                val f = ((atan2(y, x) + PI.toFloat() / 2f) / (2f * PI.toFloat()) + 1f) % 1f
+                val base = when (state) { State.Connected -> 1f; State.Error -> .92f; else -> if (inOuter) .26f else .13f }
+                var alpha = base
+                if (connecting) {
+                    val d = ((spin - f) % 1f + 1f) % 1f
+                    alpha = if (d < .42f) 1f - d / .42f * .9f else base
                 }
+                // Outer band reads slightly brighter so the ring has depth without extra colour.
+                drawCircle(lit.copy(alpha = alpha), rDot * if (inOuter) 1f else .82f, Offset(c.x + x, c.y + y))
             }
-            val outer = size.minDimension / 2 - 10.dp.toPx()
-            ring(dots, outer, 3.2.dp.toPx(), .22f)
-            ring(36, outer * .80f, 2.2.dp.toPx(), .10f)
         }
         DotText(
             when (state) { State.Idle -> "OFF"; State.Connecting -> "..."; State.Connected -> "ON"; State.Error -> "ERR" },

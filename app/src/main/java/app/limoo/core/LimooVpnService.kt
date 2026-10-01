@@ -7,8 +7,10 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
+import android.widget.TextView
 import androidx.core.app.ServiceCompat
 import app.limoo.LimooApp
+import app.limoo.R
 import app.limoo.model.AppSettings
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,14 +37,38 @@ class LimooVpnService : VpnService() {
         startVpn(); return START_STICKY      // null intent = system restart / Always-on VPN
     }
 
+    /**
+     * Notification in the app's own language: the server name as the title, live speed and session total
+     * as the text, plus a custom dot-grid strip that fills as data flows. Android's own layouts cannot draw
+     * the dot-matrix font, so the counters use monospace here - the identity comes from the custom view,
+     * the flat black background and the hairline separator rather than from a stock notification.
+     */
     private fun notification(text: String, sub: String? = null): Notification {
         val stop = android.app.PendingIntent.getService(this, 0, Intent(this, LimooVpnService::class.java).setAction(ACTION_STOP), android.app.PendingIntent.FLAG_IMMUTABLE)
+        val open = android.app.PendingIntent.getActivity(this, 1, Intent(this, app.limoo.ui.MainActivity::class.java), android.app.PendingIntent.FLAG_IMMUTABLE)
+
+        val view = layoutInflater.inflate(R.layout.notif, null, false)
+        val vTitle = view.findViewById<TextView>(R.id.nTitle)
+        val vRate = view.findViewById<TextView>(R.id.nRate)
+        val vTotal = view.findViewById<TextView>(R.id.nTotal)
+        val vBars = view.findViewById<DotStripView>(R.id.nBars)
+        vTitle.text = if (text.isBlank()) "LIMOO" else text
+        vRate.text = sub?.substringBefore("  ") ?: ""
+        vTotal.text = sub?.substringAfter("  ", "") ?: ""
+        vBars.fraction = 0f
+
         return Notification.Builder(this, "limoo")
-            .setContentTitle(if (text.isBlank()) "Limoo" else "Limoo - $text")
-            .setContentText(sub ?: text)
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setSmallIcon(R.drawable.ic_stat)
+            .setContentTitle(vTitle.text)
+            .setContentText(vRate.text)
+            .setStyle(Notification.BigTextStyle().bigText(vTotal.text))
+            .setContentView(view)
+            .setCustomContentView(view)
+            .setColor(0xFF000000.toInt())
+            .setColorized(false)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setContentIntent(open)
             .addAction(Notification.Action.Builder(null, "Disconnect", stop).build())
             .build()
     }
@@ -85,22 +111,29 @@ class LimooVpnService : VpnService() {
         return b.establish()
     }
 
-    /** Polls the core's own counters once a second: drives the Home screen and the notification text. */
+    /**
+     * Polls the core's counters once a second. Drives the shared [traffic] flow (Home screen) and rebuilds
+     * the notification every 5s with the live rate and session total, so the shade shows real numbers
+     * without being re-posted so often that it flickers.
+     */
     private fun startCounterLoop(nm: NotificationManager) {
         counterJob?.cancel()
         counterJob = scope.launch {
-            var prev: CoreTraffic? = null; var shown = 0L
+            var lastDown = 0L; var lastPost = 0L
             while (true) {
                 delay(1000)
-                val now = engine.queryTraffic()
-                if (now == null) continue
+                val now = engine.queryTraffic() ?: continue
                 traffic.value = now
-                // Refresh the notification at most every 5s so the shade does not flicker constantly.
-                if (now.down - shown >= 5L * 1024 * 1024 || shown == 0L) {
-                    shown = now.down
-                    nm.notify(1, notification(serverName.value, "${fmtRate(now.down - (prev?.down ?: 0))}  ${fmtBytes(now.down)}"))
+                val delta = (now.down - lastDown).coerceAtLeast(0)
+                val since = System.currentTimeMillis() - lastPost
+                if (lastPost == 0L || since >= 5000L || now.up + now.down > 0L && since >= 2000L && delta > 32L * 1024) {
+                    lastPost = System.currentTimeMillis(); lastDown = now.down
+                    val rate = if (since >= 4000) fmtRate(delta * 1000 / since) else fmtRate(delta)
+                    nm.notify(1, notification(serverName.value, "$rate  ${fmtBytes(now.up + now.down)}").apply {
+                        // Fill the dot strip proportionally to throughput over a 5s window (full = ~1 MB/s).
+                        findViewById<DotStripView>(R.id.nBars)?.fraction = (delta * 1000L / since.coerceAtLeast(1) / (1024L * 1024L)).coerceIn(0f, 1f)
+                    })
                 }
-                prev = now
             }
         }
     }

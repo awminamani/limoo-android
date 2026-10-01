@@ -5,6 +5,20 @@ import app.limoo.model.Server
 import kotlinx.serialization.json.*
 
 object XrayConfigBuilder {
+    /**
+     * Minimal config used only for a delay probe (the shape v2rayNG passes to measureOutboundDelay).
+     * Deliberately has no inbounds - a probe must not bind the SOCKS/HTTP ports the running core owns -
+     * and no routing rules, so it does not need geo data and cannot be rejected by a routing match.
+     */
+    fun buildProbe(s: Server, st: AppSettings): String = buildJsonObject {
+        put("log", buildJsonObject { put("loglevel", "none") })
+        put("inbounds", buildJsonArray { })
+        put("outbounds", buildJsonArray {
+            add(proxy(s, st))
+            add(buildJsonObject { put("tag", "direct"); put("protocol", "freedom") })
+        })
+    }.toString()
+
     fun build(s: Server, st: AppSettings, tun: Boolean = false): String = buildJsonObject {
         put("log", buildJsonObject { put("loglevel", st.logLevel) })
         put("dns", buildJsonObject {

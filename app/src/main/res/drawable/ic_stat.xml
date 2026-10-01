@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Notification/status-bar icon. Must be a flat silhouette on transparency: Android tints it and
+     discards colour, so this is the same dot-grid "L" reduced to the 5x5 core strokes. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+
+    <!-- stem -->
+    <path android:fillColor="#FFFFFF" android:pathData="M5,3m-1.1,0a1.1,1.1 0,1 1,2.2 0a1.1,1.1 0,1 1,-2.2 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M5,6.4m-1.1,0a1.1,1.1 0,1 1,2.2 0a1.1,1.1 0,1 1,-2.2 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M5,9.8m-1.1,0a1.1,1.1 0,1 1,2.2 0a1.1,1.1 0,1 1,-2.2 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M5,13.2m-1.1,0a1.1,1.1 0,1 1,2.2 0a1.1,1.1 0,1 1,-2.2 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M5,16.6m-1.1,0a1.1,1.1 0,1 1,2.2 0a1.1,1.1 0,1 1,-2.2 0" />
+    <!-- foot -->
+    <path android:fillColor="#FFFFFF" android:pathData="M8.2,16.6m-1.1,0a1.1,1.1 0,1 1,2.2 0a1.1,1.1 0,1 1,-2.2 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M11.4,16.6m-1.1,0a1.1,1.1 0,1 1,2.2 0a1.1,1.1 0,1 1,-2.2 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M14.6,16.6m-1.1,0a1.1,1.1 0,1 1,2.2 0a1.1,1.1 0,1 1,-2.2 0" />
+    <path android:fillColor="#FFFFFF" android:pathData="M17.8,16.6m-1.1,0a1.1,1.1 0,1 1,2.2 0a1.1,1.1 0,1 1,-2.2 0" />
+</vector>

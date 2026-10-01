@@ -142,7 +142,7 @@ fun SettingsScreen(store: Store, a: Actions) {
         "look" -> Page("LOOK AND FEEL", { page = "" }) {
             Group {
                 ChoiceRow("Theme", listOf("system", "light", "dark"), st.theme) { v -> upd { it.copy(theme = v) } }; NDivider()
-                ChoiceRow("Accent", listOf("red", "lime", "mono"), st.accent) { v -> upd { it.copy(accent = v) } }; NDivider()
+                ChoiceRow("Accent", listOf("mono", "red", "lime", "amber", "blue"), st.accent) { v -> upd { it.copy(accent = v) } }; NDivider()
                 ToggleRow("Haptics", st.haptics) { v -> upd { it.copy(haptics = v) } }
             }
             Group {

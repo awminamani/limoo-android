@@ -1,6 +1,33 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="48" android:viewportHeight="48">
-    <path android:fillColor="#5E7A00" android:pathData="M24,24m-24,0a24,24 0,1 1,48 0a24,24 0,1 1,-48 0"/>
-    <group android:translateX="12" android:translateY="12">
-        <path android:fillColor="#FFFFFF" android:pathData="M13,3h-2v10h2V3zm4.83,2.17l-1.42,1.42C17.99,7.86 19,9.81 19,12c0,3.87 -3.13,7 -7,7s-7,-3.13 -7,-7c0,-2.19 1.01,-4.14 2.58,-5.42L6.17,5.17C4.23,6.82 3,9.26 3,12c0,4.97 4.03,9 9,9s9,-4.03 9,-9c0,-2.74 -1.23,-5.18 -3.17,-6.83z"/>
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher icon: a dot-grid "L" in the Nothing style. Drawn as explicit dots rather than a stroked
+     path so it reads as a dot matrix at every size, and so it stays crisp without a font dependency.
+     28x28 grid, 5x5 glyph area, dot pitch 1.0 with radius 0.34. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="28"
+    android:viewportHeight="28">
+
+    <path android:pathData="M0,0h28v28h-28z" android:fillColor="#000000" />
+
+    <!-- L: vertical stem (rows 4..22, col 5) + foot (row 22, cols 5..20) -->
+    <group>
+        <path android:fillColor="#FFFFFF" android:pathData="M5,4m-0.34,0a0.34,0.34 0,1 1,0.68 0a0.34,0.34 0,1 1,-0.68 0" />
+        <path android:fillColor="#FFFFFF" android:pathData="M5,6m-0.34,0a0.34,0.34 0,1 1,0.68 0a0.34,0.34 0,1 1,-0.68 0" />
+        <path android:fillColor="#FFFFFF" android:pathData="M5,8m-0.34,0a0.34,0.34 0,1 1,0.68 0a0.34,0.34 0,1 1,-0.68 0" />
+        <path android:fillColor="#FFFFFF" android:pathData="M5,10m-0.34,0a0.34,0.34 0,1 1,0.68 0a0.34,0.34 0,1 1,-0.68 0" />
+        <path android:fillColor="#FFFFFF" android:pathData="M5,12m-0.34,0a0.34,0.34 0,1 1,0.68 0a0.34,0.34 0,1 1,-0.68 0" />
+        <path android:fillColor="#FFFFFF" android:pathData="M5,14m-0.34,0a0.34,0.34 0,1 1,0.68 0a0.34,0.34 0,1 1,-0.68 0" />
+        <path android:fillColor="#FFFFFF" android:pathData="M5,16m-0.34,0a0.34,0.34 0,1 1,0.68 0a0.34,0.34 0,1 1,-0.68 0" />
+        <path android:fillColor="#FFFFFF" android:pathData="M5,18m-0.34,0a0.34,0.34 0,1 1,0.68 0a0.34,0.34 0,1 1,-0.68 0" />
+        <path android:fillColor="#FFFFFF" android:pathData="M5,20m-0.34,0a0.34,0.34 0,1 1,0.68 0a0.34,0.34 0,1 1,-0.68 0" />
+        <path android:fillColor="#FFFFFF" android:pathData="M5,22m-0.34,0a0.34,0.34 0,1 1,0.68 0a0.34,0.34 0,1 1,-0.68 0" />
+        <path android:fillColor="#FFFFFF" android:pathData="M7,22m-0.34,0a0.34,0.34 0,1 1,0.68 0a0.34,0.34 0,1 1,-0.68 0" />
+        <path android:fillColor="#FFFFFF" android:pathData="M9,22m-0.34,0a0.34,0.34 0,1 1,0.68 0a0.34,0.34 0,1 1,-0.68 0" />
+        <path android:fillColor="#FFFFFF" android:pathData="M11,22m-0.34,0a0.34,0.34 0,1 1,0.68 0a0.34,0.34 0,1 1,-0.68 0" />
+        <path android:fillColor="#FFFFFF" android:pathData="M13,22m-0.34,0a0.34,0.34 0,1 1,0.68 0a0.34,0.34 0,1 1,-0.68 0" />
+        <path android:fillColor="#FFFFFF" android:pathData="M15,22m-0.34,0a0.34,0.34 0,1 1,0.68 0a0.34,0.34 0,1 1,-0.68 0" />
+        <path android:fillColor="#FFFFFF" android:pathData="M17,22m-0.34,0a0.34,0.34 0,1 1,0.68 0a0.34,0.34 0,1 1,-0.68 0" />
+        <path android:fillColor="#FFFFFF" android:pathData="M19,22m-0.34,0a0.34,0.34 0,1 1,0.68 0a0.34,0.34 0,1 1,-0.68 0" />
     </group>
 </vector>

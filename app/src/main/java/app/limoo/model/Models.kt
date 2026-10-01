@@ -54,7 +54,7 @@ data class AppSettings(
     // routing data + testing
     val geoSource: String = "chocolate4u", val geoAutoUpdate: Boolean = true,
     // ui / behaviour
-    val accent: String = "red", val haptics: Boolean = true, val privacyMode: Boolean = false,
+    val accent: String = "mono", val haptics: Boolean = true, val privacyMode: Boolean = false,
     val autoConnect: Boolean = false, val clipboardWatch: Boolean = true, val sortBy: String = "manual",
     val testUrl: String = "https://www.gstatic.com/generate_204", val autoSelect: Boolean = false,
     // true = use the core's own delay probe instead of a plain TCP connect (slower, but real RTT)

@@ -82,6 +82,7 @@ private fun ServerRow(
 fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit, busy: String? = null) {
     val n = LocalN.current; val ctx = LocalContext.current; val scope = rememberCoroutineScope()
     val servers by store.servers.collectAsState(); val selId by store.selectedId.collectAsState(); val st by store.settings.collectAsState()
+    val subs by store.subs.collectAsState()
     val pinging by store.pinging.collectAsState()
     var query by rememberSaveable { mutableStateOf("") }; var filter by rememberSaveable { mutableStateOf("ALL") }
     var picked by remember { mutableStateOf(setOf<String>()) }; var collapsed by remember { mutableStateOf(setOf<String>()) }
@@ -128,6 +129,23 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit, busy: String? = n
             }
             if (refreshingSubs || busy != null) {
                 NBusy(busy ?: "UPDATING SUBSCRIPTIONS"); Spacer(Modifier.height(4.dp))
+            }
+            // Subscription allowances (data used / total, days left) stay pinned here instead of only inside
+            // group headers, where they disappeared as soon as the user searched or changed the sort.
+            if (subs.any { it.total > 0 || it.expire > 0 }) {
+                NCard(Modifier.fillMaxWidth().padding(top = 10.dp), radius = 22.dp) {
+                    Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+                        NLabel("SUBSCRIPTION")
+                        subs.filter { it.total > 0 || it.expire > 0 }.forEachIndexed { i, s ->
+                            if (i > 0) NDivider()
+                            SubAllowance(
+                                "${s.name.uppercase()}  -  ${servers.count { it.subId == s.id }} SERVERS",
+                                s.upload, s.download, s.total, s.expire,
+                                Modifier.padding(top = if (i > 0) 12.dp else 10.dp),
+                            )
+                        }
+                    }
+                }
             }
             Spacer(Modifier.height(12.dp))
             NSearch(query, { query = it })
