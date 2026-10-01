@@ -29,9 +29,10 @@ class LibXrayEngine(private val ctx: Context) : CoreEngine {
     override fun start(configJson: String, tunFd: Int, st: AppSettings) {
         stop()
         val l = lib()
-        // Xray reads the second initCoreEnv argument as xray.xudp.basekey and demands exactly 32 bytes
-        // (64 hex chars). ANDROID_ID is 16-or-so hex chars, so passing it directly makes core init fail with
-        // "xray.xudp.basekey: invalid value (BaseKey must be 32 bytes)". Use a stable random 32-byte key instead.
+        // Xray reads the second initCoreEnv argument as xray.xudp.basekey and runs it through
+        // base64.RawURLEncoding.DecodeString, requiring exactly 32 decoded bytes (43 base64url chars, unpadded).
+        // Hex or padded base64 both fail with "xray.xudp.basekey: invalid value (BaseKey must be 32 bytes)".
+        // ANDROID_ID is neither, so use a stable random 32-byte key encoded as unpadded base64url.
         val key = xudpBaseKey(ctx)
         (l.methods.firstOrNull { it.name == "initCoreEnv" } ?: l.methods.firstOrNull { it.name == "initV2Env" })
             ?.let { call(it, null, GeoManager.dir(ctx).absolutePath, key) }
@@ -46,14 +47,13 @@ class LibXrayEngine(private val ctx: Context) : CoreEngine {
         controller = c
     }
 
-    /** Stable per-install 32-byte XUDP base key, hex encoded (64 chars). Generated once, then persisted. */
+    /** Stable per-install XUDP base key: 32 random bytes as unpadded base64url (43 chars). Generated once. */
     private fun xudpBaseKey(ctx: Context): String {
         val sp = ctx.getSharedPreferences("limoo_core", Context.MODE_PRIVATE)
-        sp.getString("xudpBaseKey", null)?.let { if (it.length == 64) return it }
-        val key = java.security.SecureRandom().let { rnd ->
-            val b = ByteArray(32); rnd.nextBytes(b)
-            b.joinToString("") { "%02x".format(it) }
-        }
+        sp.getString("xudpBaseKey", null)?.let { if (it.length == 43) return it }
+        val b = ByteArray(32)
+        java.security.SecureRandom().nextBytes(b)
+        val key = android.util.Base64.encodeToString(b, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
         sp.edit().putString("xudpBaseKey", key).apply()
         return key
     }

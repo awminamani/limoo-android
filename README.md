@@ -19,9 +19,10 @@ Kotlin + Jetpack Compose + `VpnService`. **Not yet compiled or run** - written i
 - **Extras:** live speed and session traffic, Quick Settings tile, disconnect action in the notification, Always-on VPN restart, light/dark/dynamic theme, RTL layout flag, launcher icon
 
 ## Fixes applied after the first CI run
-- `initCoreEnv` needs a **32-byte** XUDP base key (64 hex chars). `ANDROID_ID` was passed and made every
-  connect fail with `xray.xudp.basekey: invalid value (BaseKey must be 32 bytes)`. A stable random 32-byte key
-  is now generated once per install and persisted (`core/CoreEngine.kt`).
+- `initCoreEnv` needs an XUDP base key that is 32 bytes encoded as **unpadded base64url** (43 chars) - Xray runs
+  it through `base64.RawURLEncoding.DecodeString` and rejects anything else. `ANDROID_ID` was passed, which made
+  every connect fail with `xray.xudp.basekey: invalid value (BaseKey must be 32 bytes)`. A stable random 32-byte
+  key is now generated once per install and persisted (`core/CoreEngine.kt`).
 - The release APK was unsigned, so Android refused to install it. `app/build.gradle.kts` now signs release with
   the debug keystore so the CI artifact is installable (replace with your own keystore for real releases).
 
