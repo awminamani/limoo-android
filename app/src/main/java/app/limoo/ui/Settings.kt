@@ -17,7 +17,6 @@ import app.limoo.core.GeoManager
 import app.limoo.model.AppSettings
 import kotlinx.coroutines.launch
 
-@Composable
 /** Settings groups: a hairline-bordered block, 8dp radius. Rows inside are separated by hairlines. */
 @Composable
 private fun Group(content: @Composable ColumnScope.() -> Unit) =

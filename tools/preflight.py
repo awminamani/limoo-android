@@ -172,5 +172,27 @@ for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
             line_no = body[:m.start()].count("\n") + 1
             fail.append(f"{f}:{line_no} radius {m.group(1)}dp - spec caps content radii at 12dp")
 
+# ---- 11. DrawScope has no Paint, and Dp/Px must not be mixed ----
+# Compose type errors that only the Kotlin compiler can catch. These two patterns caused real failures.
+for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
+    body = strip_comments(open(f).read())
+    # inside a Canvas/DrawScope block, a bare `paint.` reference is invalid
+    for m in re.finditer(r"(?<![A-Za-z0-9_.])paint\.", body):
+        seg = body[max(0, m.start() - 400):m.start()]
+        if "Canvas(" in seg or "drawIntoCanvas" in seg:
+            line_no = body[:m.start()].count("\n") + 1
+            fail.append(f"{f}:{line_no} uses `paint.` inside a Canvas block - DrawScope has no Paint")
+    # Dp divided by px, or px produced then divided by a Dp
+    for m in re.finditer(r"toPx\(\)\s*[-/]\s*\d+\.dp", body):
+        line_no = body[:m.start()].count("\n") + 1
+        fail.append(f"{f}:{line_no} mixes px and Dp in one expression - do the arithmetic in Dp first")
+    for m in re.finditer(r"\d+\.dp\s*[-/]\s*\S+\.toPx\(\)", body):
+        line_no = body[:m.start()].count("\n") + 1
+        fail.append(f"{f}:{line_no} mixes Dp and px in one expression - do the arithmetic in Dp first")
+    # duplicated annotations on one declaration
+    for m in re.finditer(r"@Composable\s*\n\s*/\*\*.*?\*/\s*\n\s*@Composable", body, re.S):
+        line_no = body[:m.start()].count("\n") + 1
+        fail.append(f"{f}:{line_no} @Composable appears twice on one declaration")
+
 print("\n".join(fail) if fail else "preflight: all checks passed")
 sys.exit(1 if fail else 0)

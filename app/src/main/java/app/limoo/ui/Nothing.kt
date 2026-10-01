@@ -170,8 +170,11 @@ fun DotReadout(
     val cells = widths.sum() + (chars.size - 1).coerceAtLeast(0)
     Canvas(modifier.width(width).height(height)) {
         if (cells <= 0) return@Canvas
-        val gap = 1.dp.toPx()
-        val cell = ((width - gap) / cells).coerceAtLeast(1.dp).toPx()
+        // Dp arithmetic stays in Dp; converting to px first and then dividing would mix units.
+        val gapDp = 1.dp
+        val cellDp = ((width - gapDp) / cells).coerceAtLeast(1.dp)
+        val cell = cellDp.toPx()
+        val gap = gapDp.toPx()
         val r = (cell - gap) / 2f
         var x = 0
         chars.forEachIndexed { i, ch ->
@@ -214,11 +217,9 @@ fun SegmentedBar(fraction: Float, modifier: Modifier = Modifier, segments: Int =
         val gap = 2.dp.toPx()
         val segW = (size.width - gap * (segments - 1)) / segments
         for (i in 0 until segments) {
-            paint.color = when {
-                i < lit -> if (signal) n.accent else n.text
-                else -> n.line
-            }
-            drawRect(paint.color, Offset(i * (segW + gap), 0f), androidx.compose.ui.geometry.Size(segW, size.height))
+            // DrawScope has no Paint; pass the colour straight to drawRect.
+            val c = if (i < lit) { if (signal) n.accent else n.text } else n.line
+            drawRect(c, Offset(i * (segW + gap), 0f), androidx.compose.ui.geometry.Size(segW, size.height))
         }
     }
 }
