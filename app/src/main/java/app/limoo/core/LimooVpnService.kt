@@ -7,7 +7,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
-import android.view.RemoteViews
+import android.widget.RemoteViews
 import androidx.core.app.ServiceCompat
 import app.limoo.LimooApp
 import app.limoo.R
