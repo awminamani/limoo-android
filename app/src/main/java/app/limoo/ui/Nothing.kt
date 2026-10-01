@@ -222,9 +222,11 @@ fun DotText(
 @Composable
 fun DotTextFixed(
     text: String, width: Dp, height: Dp, modifier: Modifier = Modifier,
-    color: Color = LocalN.current.text, align: Alignment.Horizontal = Alignment.Start,
+    color: Color = LocalN.current.text, align: Alignment = Alignment.CenterStart,
 ) {
-    Box(modifier.width(width).height(height), contentAlignment = align) { DotText(text, dot = 2.dp, gap = 1.dp, color = color, maxWidth = width) }
+    Box(modifier.width(width).height(height), contentAlignment = align) {
+        DotText(text, dot = 2.dp, gap = 1.dp, color = color, maxWidth = width)
+    }
 }
 
 /** Latency as five dots: more lit = faster. Timeout = single red dot. */

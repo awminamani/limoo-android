@@ -51,7 +51,7 @@ fun SubFormSheet(initial: Subscription?, onDismiss: () -> Unit, onSave: (name: S
         NField("NAME (OPTIONAL)", name, { name = it })
         if (initial != null) ToggleRow("Auto-update", auto) { auto = it }
         val ok = url.startsWith("http")
-        if (initial == null && ok) NBusy("FETCHES ON SAVE", "SUBSCRIPTION")
+        if (initial == null && ok) NBusy("FETCHES ON SAVE", detail = "SUBSCRIPTION")
         NButton(if (initial == null) "ADD AND FETCH" else "SAVE", { onSave(name.trim(), url, auto); onDismiss() }, Modifier.fillMaxWidth().padding(top = 14.dp), primary = true, enabled = ok)
     }
 }
