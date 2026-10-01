@@ -29,8 +29,25 @@ class LibXrayEngine(private val ctx: Context) : CoreEngine {
         throw IllegalStateException("Xray core (libv2ray.aar) is not bundled. Run ./gradlew fetchXrayCore (or copy it to app/libs) and rebuild.")
     }
 
+    /**
+     * Invokes a core method, unwrapping InvocationTargetException.
+     *
+     * Callers that run on a background poll must use [callSafe]: a throw from native code inside a
+     * `while(true)` polling loop takes the whole process down, which is unrecoverable for a VPN.
+     */
     private fun call(m: java.lang.reflect.Method, target: Any?, vararg a: Any?): Any? =
         try { m.invoke(target, *a) } catch (e: InvocationTargetException) { throw e.targetException }
+
+    /** Never throws. Native faults (SIGSEGV/SIGABRT in the Go core) cannot be caught by try/catch anyway,
+     *  but Java-level failures from a background poller can, and must not be fatal. */
+    private fun callSafe(m: java.lang.reflect.Method, target: Any?, vararg a: Any?): Any? =
+        try { call(m, target, *a) } catch (t: Throwable) { Crash.log("core call ${m.name}", t); null }
+
+    /** True only when the controller exists and the core reports itself as running. */
+    private fun isRunning(c: Any): Boolean {
+        val g = c.javaClass.methods.firstOrNull { it.name == "getIsRunning" && it.parameterCount == 0 } ?: return true
+        return (callSafe(g, c) as? Boolean) == true
+    }
 
     /**
      * Initialises the core environment (asset paths + xudp key) without starting a loop. The delay probe
@@ -94,8 +111,11 @@ class LibXrayEngine(private val ctx: Context) : CoreEngine {
     override fun queryTraffic(): CoreTraffic? {
         val c = controller ?: return null
         val m = c.javaClass.methods.firstOrNull { it.name == "queryAllOutboundTrafficStats" && it.parameterCount == 0 } ?: return null
-        val raw = call(m, c) as? String ?: return null
-        return CoreStats.parse(raw)
+        // Querying stats on a stopped core can fault inside the native layer, so only ask while it is
+        // actually running, and never let an exception escape into the polling loop.
+        if (!isRunning(c)) return null
+        val raw = callSafe(m, c) as? String ?: return null
+        return runCatching { CoreStats.parse(raw) }.getOrNull()
     }
 }
 

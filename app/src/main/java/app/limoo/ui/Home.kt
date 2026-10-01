@@ -273,6 +273,8 @@ fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: ()
             }
         }
 
+        CrashNotice()
+
         GeoNotice(store)
         Spacer(Modifier.height(24.dp))
     }
@@ -280,6 +282,28 @@ fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: ()
     if (pickOpen) ServerPickerSheet(store, { pickOpen = false }) { s ->
         pickOpen = false
         if (s.id != sel?.id) { store.select(s.id); if (on || state == State.Connecting) a.reconnect() }
+    }
+}
+
+/**
+ * If the last run ended in a crash, say so here rather than making the user reproduce it blind. Shows the
+ * first line of the recorded failure plus its exception type, which is usually enough to name the cause.
+ */
+@Composable
+private fun CrashNotice() {
+    val n = LocalN.current
+    var text by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) { text = app.limoo.core.Crash.last() }
+    val t = text ?: return
+    val first = t.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty()
+    val ex = t.lineSequence().drop(1).firstOrNull { it.contains(':') }.orEmpty()
+    Spacer(Modifier.height(10.dp))
+    NCard(Modifier.fillMaxWidth(), radius = 24.dp, highlight = true) {
+        Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+            NLabel("LAST RUN CRASHED")
+            Text(ex.take(160), style = NType.mono, color = n.accent, modifier = Modifier.padding(top = 6.dp), maxLines = 3, overflow = TextOverflow.Ellipsis)
+            NButton("DISMISS", { app.limoo.core.Crash.clear(); text = null }, Modifier.padding(top = 12.dp), compact = true)
+        }
     }
 }
 

@@ -144,7 +144,9 @@ class LimooVpnService : VpnService() {
             var lastDown = 0L; var lastPost = 0L
             while (true) {
                 delay(1000)
-                val now = engine.queryTraffic() ?: continue
+                // runCatching: this loop runs for the whole session, so any escaping exception would
+                // cancel the coroutine and, worse, surface as a crash. Counters are optional.
+                val now = runCatching { engine.queryTraffic() }.getOrNull() ?: continue
                 traffic.value = now
                 val t = System.currentTimeMillis()
                 val delta = (now.down - lastDown).coerceAtLeast(0)

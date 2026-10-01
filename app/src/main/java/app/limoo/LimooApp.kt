@@ -24,7 +24,18 @@ import java.net.URL
 
 class LimooApp : Application() {
     lateinit var store: Store
-    override fun onCreate() { super.onCreate(); store = Store(this) }
+    override fun onCreate() {
+        super.onCreate()
+        app.limoo.core.Crash.appContext = applicationContext
+        // Record the fatal exception before the process dies: the file survives the crash and is shown
+        // on the next launch, so a connect crash can be identified without logcat.
+        val prev = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, err ->
+            runCatching { app.limoo.core.Crash.log("FATAL on ${thread.name}", err) }
+            prev?.uncaughtException(thread, err)
+        }
+        store = Store(this)
+    }
 }
 
 class Store(ctx: Context) {
