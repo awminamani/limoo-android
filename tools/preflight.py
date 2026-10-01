@@ -277,5 +277,76 @@ if os.path.exists(W):
     if "override suspend fun provideGlance" not in open(W).read():
         fail.append(f"{W}: provideGlance must be `override suspend fun provideGlance(context, id)`")
 
+    # Every androidx.glance.* import must exist as a class in the real glance AAR. Guessing the package
+    # is the single most common Glance mistake (defaultWeight is a RowScope member, ColorFilter is in
+    # androidx.glance not .color), and it is invisible without a compiler.
+    aar = "/tmp/gx/classes.jar"
+    # glance and glance-appwidget are separate artifacts; the widget needs classes from both.
+    for extra in ("/tmp/gawx/classes.jar",):
+        if os.path.exists(extra):
+            aar = extra if aar == extra else aar
+    jars = [j for j in ("/tmp/gx/classes.jar", "/tmp/gawx/classes.jar") if os.path.exists(j)]
+    if jars:
+        import zipfile as _z
+        names = set()
+        for _j in jars:
+            with _z.ZipFile(_j) as _zz:
+                for n in _zz.namelist():
+                    if n.endswith(".class"):
+                        names.add(n[:-6].replace("/", "."))
+        # A top-level Kotlin extension (size, fillMaxWidth, Row, background, provideContent, ...) is
+        # compiled into a file facade class like SizeModifiersKt, and its IMPORT name is the function name,
+        # not the class name. So resolve an import by searching every facade's declared members.
+        facades = {}
+        for n in names:
+            if not n.endswith("Kt"):
+                continue
+            simple = n.rsplit(".", 1)[1][:-2]
+            facades.setdefault(n.rsplit(".", 1)[0], set())
+        member_of = {}
+        for _j in jars:
+            with _z.ZipFile(_j) as _zz2:
+                for n in _zz2.namelist():
+                    if not n.endswith("Kt.class"):
+                        continue
+                    try:
+                        data = _zz2.read(n)
+                    except KeyError:
+                        continue
+                    pkg = n.rsplit("/", 1)[0].replace("/", ".")
+                    # The constant pool holds every referenced name; enough to spot the function names.
+                    for tok in re.findall(rb"[A-Za-z_][A-Za-z0-9_]{2,40}", data):
+                        member_of.setdefault(pkg, set()).add(tok.decode("latin-1"))
+                    # Also record the bare filename (e.g. RunCallbackActionKt -> actionRunCallback callers
+                    # live in the same package), so a subpackage like .appwidget.action resolves too.
+                    member_of.setdefault(pkg.rsplit(".", 1)[0] if "." in pkg else pkg, set()).update(
+                        {n.rsplit("/", 1)[1][:-6]}
+                    )
+        for imp in sorted(have):
+            pkg, last = imp.rsplit(".", 1)
+            direct = imp in names or any(x.startswith(imp + "$") for x in names)
+            if direct:
+                continue
+            if last in member_of.get(pkg, set()):
+                continue
+            # defaultWeight is a RowScope member, not a top-level function.
+            if last in ("defaultWeight",):
+                continue
+            fail.append(f"{W}: import {imp} matches no class or extension function in glance 1.1.0")
+        # TextStyle collides with java.time.format.TextStyle - one of them must be aliased.
+        body = open(W).read()
+        if "java.time.format.TextStyle" in body and "import java.time.format.TextStyle as" not in body:
+            fail.append(f"{W}: java.time.format.TextStyle clashes with androidx.glance.text.TextStyle - alias it")
+        # defaultWeight is a RowScope/ColumnScope extension on GlanceModifier, so GlanceModifier.defaultWeight()
+        # is the correct form - but it is only valid inside a Row/Column content lambda.
+        for m in re.finditer(r"(?<![\w.])defaultWeight\(\)", body):
+            line_no = body[:m.start()].count("\n") + 1
+            window = body[max(0, m.start() - 600):m.start()]
+            if not re.search(r"\b(Row|Column)\s*\(", window):
+                fail.append(f"{W}:{line_no} defaultWeight() used outside a Row/Column - it is a scope member")
+        # background(ImageProvider, ColorFilter) - the 2nd positional param is contentScale, not colorFilter.
+        for m in re.finditer(r"\.background\(ImageProvider\([^)]*\)\s*,\s*ColorFilter", body):
+            fail.append(f"{W}: background(ImageProvider, ColorFilter) needs `colorFilter =` named - the 2nd positional arg is contentScale")
+
 print("\n".join(fail) if fail else "preflight: all checks passed")
 sys.exit(1 if fail else 0)

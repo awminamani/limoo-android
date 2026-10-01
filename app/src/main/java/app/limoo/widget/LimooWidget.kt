@@ -29,7 +29,6 @@ import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxHeight
 import androidx.glance.layout.fillMaxSize
-import androidx.glance.layout.defaultWeight
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
@@ -52,7 +51,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDate
-import java.time.format.TextStyle
+import java.time.format.TextStyle as JavaTextStyle
 import java.util.Locale
 
 /**
@@ -155,7 +154,7 @@ class LimooWidget : GlanceAppWidget() {
                     Row(GlanceModifier.fillMaxWidth()) {
                         week.forEachIndexed { i, (d, _) ->
                             Text(
-                                d.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.US),
+                                d.dayOfWeek.getDisplayName(JavaTextStyle.NARROW, Locale.US),
                                 style = TextStyle(
                                     color = if (i == week.lastIndex) text else muted,
                                     fontSize = 9.sp, fontFamily = FontFamily.Monospace,
@@ -195,7 +194,7 @@ private fun UsageChart(values: List<Long>, max: Long, text: ColorProvider, muted
             // Bar body: recede for past days, full contrast for today.
             Box(
                 GlanceModifier.size(6.dp, h)
-                    .background(ImageProvider(R.drawable.widget_bar), ColorFilter.tint(if (isToday) text else muted)),
+                    .background(ImageProvider(R.drawable.widget_bar), colorFilter = ColorFilter.tint(if (isToday) text else muted)),
             ) {}
             Spacer(GlanceModifier.width(6.dp))
         }
