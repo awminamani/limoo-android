@@ -1,4 +1,6 @@
 import java.net.URL
+import java.util.Properties
+import java.util.zip.ZipInputStream
 
 plugins {
     id("com.android.application"); id("org.jetbrains.kotlin.android")
@@ -12,7 +14,7 @@ android {
     }
     // Release signing: keystore.properties (local, git-ignored) or LIMOO_* env vars (CI). Falls back to the
     // debug key so a fresh clone still builds an installable APK.
-    val ksProps = java.util.Properties().apply { rootProject.file("keystore.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) } }
+    val ksProps = Properties().apply { rootProject.file("keystore.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) } }
     fun ks(k: String, env: String): String? = (ksProps.getProperty(k) ?: System.getenv(env))?.takeIf { it.isNotBlank() }
     signingConfigs {
         val store = ks("storeFile", "LIMOO_KEYSTORE")
@@ -77,7 +79,7 @@ tasks.register("verifyXrayCore") {
     doLast {
         fun entries(bytes: ByteArray): Map<String, ByteArray> {
             val out = HashMap<String, ByteArray>()
-            java.util.zip.ZipInputStream(bytes.inputStream()).use { z ->
+            ZipInputStream(bytes.inputStream()).use { z ->
                 while (true) { val e = z.nextEntry ?: break; if (!e.isDirectory) out[e.name] = z.readBytes() }
             }
             return out
