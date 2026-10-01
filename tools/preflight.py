@@ -212,5 +212,30 @@ else:
         line_no = open(gf).read()[:open(gf).read().index(body)].count("\n") + 1
         fail.append(f"{gf}:{line_no} GLYPHS has duplicate keys {dupes} - associate() keeps the last, silently")
 
+# ---- 13. DotReadout must not take a fixed height ----
+# A 5x7 glyph needs exactly 7 * pitch of height. Passing a hard-coded height clipped the bottom rows of
+# every character, which is what made the speed figures look garbled. The height is derived internally now.
+for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
+    body = strip_comments(open(f).read())
+    for m in re.finditer(r"DotReadout\s*\(([^)]*)\)", body, re.S):
+        args = m.group(1)
+        # three positional args means (text, width, height)
+        depth = 0; parts = []; cur = ""; instr = False
+        for ch in args:
+            if instr:
+                cur += ch
+                if ch == '"': instr = False
+                continue
+            if ch == '"': instr = True; cur += ch
+            elif ch in "([{": depth += 1; cur += ch
+            elif ch in ")]}": depth -= 1; cur += ch
+            elif ch == "," and depth == 0: parts.append(cur.strip()); cur = ""
+            else: cur += ch
+        parts.append(cur.strip())
+        pos = [a for a in parts if a and "=" not in a]
+        if len(pos) >= 3:
+            line_no = body[:m.start()].count("\n") + 1
+            fail.append(f"{f}:{line_no} DotReadout given a fixed height ({pos[2]}) - the height clips the glyph")
+
 print("\n".join(fail) if fail else "preflight: all checks passed")
 sys.exit(1 if fail else 0)

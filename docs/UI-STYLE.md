@@ -153,6 +153,8 @@ renders `BusyRow` and disables the confirm button.
 - `startForeground()` must never throw — it is on the connect path. `minimalForeground()` is the fallback.
 - The Xray core's `initCoreEnv` base key must be 32 bytes as **unpadded base64url** (43 chars), not hex.
 - Traffic-stat keys are **`uplink` / `downlink`**, not `up` / `down`. Wrong keys fail silently.
+- The Xray config **must declare `stats` and a `policy`** or `queryAllOutboundTrafficStats()` has no counters
+  to report and every live figure silently reads zero. See `XrayConfigBuilder.build`.
 - The delay probe needs `initCoreEnv` to have run and must use `XrayConfigBuilder.buildProbe` (no inbounds —
   a probe that binds the SOCKS port collides with the running core).
 - Ring geometry must derive from **one pitch**, centred; two independent radii produce a ring that looks

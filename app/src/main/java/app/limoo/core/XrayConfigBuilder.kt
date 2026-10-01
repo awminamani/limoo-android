@@ -36,6 +36,14 @@ object XrayConfigBuilder {
                     put("packets", st.fragmentPackets); put("length", st.fragmentLength); put("interval", st.fragmentInterval) }) })
             })
         })
+        // Required for queryAllOutboundTrafficStats() to report anything. Without a declared stats object
+        // the core keeps no per-outbound counters, so the live figures silently stay at zero and the
+        // notification never updates. SystemStats is what the gRPC stats service exposes.
+        put("stats", buildJsonObject {})
+        put("policy", buildJsonObject {
+            put("levels", buildJsonObject { put("0", buildJsonObject { put("statsUserUplink", true); put("statsUserDownlink", true) }) })
+            put("system", buildJsonObject { put("statsInboundUplink", true); put("statsInboundDownlink", true) })
+        })
         put("routing", routing(st))
     }.toString()
 

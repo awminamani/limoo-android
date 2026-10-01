@@ -205,7 +205,7 @@ fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: ()
         Spacer(Modifier.height(Space.standard))
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             when (state) {
-                State.Connected -> DotReadout(fmtUptime(now - since), 150.dp, 22.dp)
+                State.Connected -> DotReadout(fmtUptime(now - since), 132.dp, maxPitch = 3.dp)
                 State.Connecting -> Text("Negotiating", style = NType.body, color = n.dim)
                 State.Error -> Text((error ?: "Failed").take(120), style = NType.bodySmall, color = n.accent, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 State.Idle -> Text(
@@ -271,12 +271,12 @@ fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: ()
                             Column(Modifier.weight(1f)) {
                                 NLabel("Download")
                                 Spacer(Modifier.height(Space.compact))
-                                DotReadout(fmtBytes(traffic.down) + "/S", 148.dp, 20.dp)
+                                DotReadout(fmtBytes(traffic.down) + "/S", 148.dp)
                             }
                             Column(Modifier.weight(1f)) {
                                 NLabel("Upload")
                                 Spacer(Modifier.height(Space.compact))
-                                DotReadout(fmtBytes(traffic.up) + "/S", 148.dp, 20.dp)
+                                DotReadout(fmtBytes(traffic.up) + "/S", 148.dp)
                             }
                         }
                         Spacer(Modifier.height(Space.standard))

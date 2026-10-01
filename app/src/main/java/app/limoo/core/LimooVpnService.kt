@@ -137,12 +137,17 @@ class LimooVpnService : VpnService() {
     private fun startCounterLoop(nm: NotificationManager) {
         counterJob?.cancel()
         counterJob = scope.launch {
-            var lastDown = 0L; var lastPost = 0L
+            var lastDown = 0L; var lastPost = 0L; var reported = false
             while (true) {
                 delay(1000)
                 // runCatching: this loop runs for the whole session, so any escaping exception would
                 // cancel the coroutine and, worse, surface as a crash. Counters are optional.
-                val now = runCatching { engine.queryTraffic() }.getOrNull() ?: continue
+                val now = runCatching { engine.queryTraffic() }.getOrNull()
+                if (now == null) {
+                    // Record it once so "the counter never moves" is diagnosable instead of silent.
+                    if (!reported) { reported = true; Crash.log("traffic stats unavailable", null) }
+                    continue
+                }
                 traffic.value = now
                 val t = System.currentTimeMillis()
                 val delta = (now.down - lastDown).coerceAtLeast(0)

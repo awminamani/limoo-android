@@ -161,20 +161,28 @@ _ 00000 00000 00000 00000 00000 00000 11111
  */
 @Composable
 fun DotReadout(
-    text: String, width: Dp, height: Dp, modifier: Modifier = Modifier,
+    text: String, width: Dp, modifier: Modifier = Modifier,
     color: Color = LocalN.current.text,
+    /** Cap on the dot pitch. A long string shrinks instead of overflowing its slot. */
+    maxPitch: Dp = 4.dp,
 ) {
     val chars = remember(text) { text.uppercase().toList() }
     val widths = remember(chars) { chars.map { c -> if (c == ' ') 3 else (GLYPHS[c]?.first()?.length ?: 5) } }
     val cells = widths.sum() + (chars.size - 1).coerceAtLeast(0)
+
+    val gap = 1.dp
+    // The pitch is bounded so short strings are not blown up to absurd dot sizes, and so long ones shrink.
+    val pitch = if (cells > 0) ((width - gap) / cells).coerceAtMost(maxPitch) else maxPitch
+    // A glyph is exactly 7 rows tall. The height MUST be derived from the pitch - sizing the Canvas to a
+    // fixed smaller height clips the bottom rows and every character renders chopped. This was the cause of
+    // the garbled-looking speed figures: a 148dp slot needs 26dp of height, not 20dp.
+    val height = pitch * 7
+
     Canvas(modifier.width(width).height(height)) {
         if (cells <= 0) return@Canvas
-        // Dp arithmetic stays in Dp; converting to px first and then dividing would mix units.
-        val gapDp = 1.dp
-        val cellDp = ((width - gapDp) / cells).coerceAtLeast(1.dp)
-        val cell = cellDp.toPx()
-        val gap = gapDp.toPx()
-        val r = (cell - gap) / 2f
+        val cell = pitch.toPx()
+        val g = gap.toPx()
+        val r = (cell - g) / 2f
         var x = 0
         chars.forEachIndexed { i, ch ->
             GLYPHS[ch]?.forEachIndexed { row, bits ->
