@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.util.AttributeSet
+import androidx.annotation.Keep
 import android.view.View
 
 /**
@@ -12,6 +13,7 @@ import android.view.View
  * notification (Compose cannot render there). Dots fill left to right; the lit colour is the accent so
  * the strip doubles as a "data is flowing" indicator.
  */
+@Keep
 class DotStripView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : View(context, attrs) {
     /** 0f..1f - how much of the strip is filled. */
     var fraction: Float = 0f
@@ -20,6 +22,13 @@ class DotStripView @JvmOverloads constructor(context: Context, attrs: AttributeS
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var count = 0
     private var step = 0f
+
+    /**
+     * Setter for RemoteViews. A notification cannot hold a reference to this object, so the system calls
+     * back through reflection and RemoteViews requires the method to be named set<Property>(float).
+     */
+    @Keep
+    fun setFraction(v: Float) { fraction = v }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         val r = h / 2f

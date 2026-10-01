@@ -7,7 +7,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
-import android.widget.TextView
+import android.app.RemoteViews
 import androidx.core.app.ServiceCompat
 import app.limoo.LimooApp
 import app.limoo.R
@@ -47,23 +47,21 @@ class LimooVpnService : VpnService() {
         val stop = android.app.PendingIntent.getService(this, 0, Intent(this, LimooVpnService::class.java).setAction(ACTION_STOP), android.app.PendingIntent.FLAG_IMMUTABLE)
         val open = android.app.PendingIntent.getActivity(this, 1, Intent(this, app.limoo.ui.MainActivity::class.java), android.app.PendingIntent.FLAG_IMMUTABLE)
 
-        val view = layoutInflater.inflate(R.layout.notif, null, false)
-        val vTitle = view.findViewById<TextView>(R.id.nTitle)
-        val vRate = view.findViewById<TextView>(R.id.nRate)
-        val vTotal = view.findViewById<TextView>(R.id.nTotal)
-        val vBars = view.findViewById<DotStripView>(R.id.nBars)
-        vTitle.text = if (text.isBlank()) "LIMOO" else text
-        vRate.text = sub?.substringBefore("  ") ?: ""
-        vTotal.text = sub?.substringAfter("  ", "") ?: ""
-        vBars.fraction = 0f
+        // Notifications render through RemoteViews, not a plain View: only TextViews/ImageViews and
+        // simple custom views can be inflated into one, so the dot strip is driven by a RemoteViews
+        // method call rather than by mutating an object here.
+        val views = RemoteViews(packageName, R.layout.notif).apply {
+            setTextViewText(R.id.nTitle, if (text.isBlank()) "LIMOO" else text)
+            setTextViewText(R.id.nRate, sub?.substringBefore("  ") ?: "")
+            setTextViewText(R.id.nTotal, sub?.substringAfter("  ", "") ?: "")
+        }
 
         return Notification.Builder(this, "limoo")
             .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle(vTitle.text)
-            .setContentText(vRate.text)
-            .setStyle(Notification.BigTextStyle().bigText(vTotal.text))
-            .setContentView(view)
-            .setCustomContentView(view)
+            .setContentTitle(if (text.isBlank()) "Limoo" else "Limoo - $text")
+            .setContentText(sub ?: "")
+            .setContentView(views)
+            .setCustomContentView(views)
             .setColor(0xFF000000.toInt())
             .setColorized(false)
             .setOngoing(true)
@@ -124,15 +122,17 @@ class LimooVpnService : VpnService() {
                 delay(1000)
                 val now = engine.queryTraffic() ?: continue
                 traffic.value = now
+                val t = System.currentTimeMillis()
                 val delta = (now.down - lastDown).coerceAtLeast(0)
-                val since = System.currentTimeMillis() - lastPost
-                if (lastPost == 0L || since >= 5000L || now.up + now.down > 0L && since >= 2000L && delta > 32L * 1024) {
-                    lastPost = System.currentTimeMillis(); lastDown = now.down
-                    val rate = if (since >= 4000) fmtRate(delta * 1000 / since) else fmtRate(delta)
-                    nm.notify(1, notification(serverName.value, "$rate  ${fmtBytes(now.up + now.down)}").apply {
-                        // Fill the dot strip proportionally to throughput over a 5s window (full = ~1 MB/s).
-                        findViewById<DotStripView>(R.id.nBars)?.fraction = (delta * 1000L / since.coerceAtLeast(1) / (1024L * 1024L)).coerceIn(0f, 1f)
-                    })
+                val elapsed = t - lastPost
+                val bytesPerSec = if (elapsed > 0) delta * 1000 / elapsed else 0
+                // Repost at most every 3s, but immediately on the first sample so the shade is never empty.
+                if (lastPost == 0L || elapsed >= 3000L) {
+                    lastPost = t; lastDown = now.down
+                    val notif = notification(serverName.value, "${fmtRate(bytesPerSec)}  ${fmtBytes(now.up + now.down)}")
+                    // Dot strip fills with throughput; 1 MB/s reads as a full bar.
+                    notif.contentView?.setFloat(R.id.nBars, "setFraction", (bytesPerSec / (1024L * 1024L)).coerceIn(0f, 1f))
+                    nm.notify(1, notif)
                 }
             }
         }
