@@ -281,6 +281,73 @@ if os.path.exists(_sv):
     if os.path.exists(_sh) and "copyStandardLinks" not in strip_comments(open(_sh).read()):
         fail.append(f"{_sh}: share sheet should offer the standard vless:// link (copyStandardLinks)")
 
+# ---- 14d. thin wrappers must forward every named parameter their callers use ----
+# WallpaperLayers forgot to forward `scrim`, and the build only failed at the call site. Compare the
+# wrapper's declared parameters against the named arguments used at its call sites.
+# Only single-expression wrappers are considered (a real body may legitimately drop a parameter).
+import re as _re
+
+
+def _strip_strings(s):
+    """Blank out string literals so their contents cannot be mistaken for call sites."""
+    s = _re.sub(r'"""(?:.|\n)*?"""', lambda m: "\n" * m.group(0).count("\n"), s)
+    s = _re.sub(r'(?<!\\)"(?:\\.|[^"\\\n])*"', '""', s)
+    s = _re.sub(r"'(?:\\.|[^'\\\n])'", "''", s)
+    return s
+
+
+_kt = {f: strip_comments(_strip_strings(open(f).read())) for f in _g.glob(os.path.join(ROOT, "**/*.kt"), recursive=True)}
+for _f, _b in _kt.items():
+    for _w in _re.finditer(r"fun\s+(\w+)\s*\(([^)]*)\)\s*=\s*(\w+)\s*\(([^)]*)\)\s*$", _b, _re.M):
+        _name, _params = _w.group(1), _w.group(2)
+        if "Modifier" not in _params:
+            continue
+        _decl = set(_re.findall(r"(\w+)\s*:", _params))
+        for _u, _ub in _kt.items():
+            for _c in _re.finditer(r"(?<![A-Za-z0-9_.])" + _name + r"\(", _ub):
+                if _u == _f and _c.start() == _w.start():
+                    continue
+                # take just this call's argument list, matching nested parens
+                _d, _args, _i = 1, [], _c.end()
+                while _i < len(_ub) and _d > 0:
+                    _ch = _ub[_i]
+                    if _ch == "(":
+                        _d += 1
+                    elif _ch == ")":
+                        _d -= 1
+                        if _d == 0:
+                            break
+                    _args.append(_ch)
+                    _i += 1
+                _arg = "".join(_args)
+                # A named argument's value may itself contain `x = ...` (e.g. `scrim = if (a == 0) 0.1f else 0.4f`),
+                # and the wrapper's own body ends in `= Target(...)`. Only take `name =` at the top level of
+                # the argument list, i.e. at paren/bracket depth 0 relative to the call.
+                _named_args = []
+                _d2 = 0
+                _cur = ""
+                for _ch in _arg:
+                    if _ch in "([{":
+                        _d2 += 1
+                    elif _ch in ")]}":
+                        _d2 -= 1
+                    if _ch == "," and _d2 == 0:
+                        _named_args.append(_cur)
+                        _cur = ""
+                    else:
+                        _cur += _ch
+                _named_args.append(_cur)
+                for _one in _named_args:
+                    _m = _re.match(r"\s*(\w+)\s*=(?!=)", _one)
+                    if not _m:
+                        continue
+                    _named = _m.group(1)
+                    if _named == "Modifier":
+                        continue
+                    if _named not in _decl:
+                        line_no = _ub[:_c.start()].count("\n") + 1
+                        fail.append(f"{_f}: {_name}() does not declare '{_named}' but it is passed at {_u}:{line_no}")
+
 # ---- 15. Glance symbols: verify against the known-good widget's import set ----
 # Glance's API is easy to guess wrong (ColorFilter lives in androidx.glance, defaultWeight in
 # .layout, provideGlance is a suspend override). Diff our imports against a known-compiling baseline.

@@ -57,6 +57,9 @@ fun AccentWallpaper(modifier: Modifier = Modifier, scrim: Float = 0f) {
     }
 }
 
-/** Background-only alias, sized to fill its parent. */
+/**
+ * Background-only form: the layers, sized to fill their parent.
+ * [scrim] darkens the artwork further for screens where it would compete with text.
+ */
 @Composable
-fun WallpaperLayers(modifier: Modifier = Modifier) = AccentWallpaper(modifier)
+fun WallpaperLayers(modifier: Modifier = Modifier, scrim: Float = 0f) = AccentWallpaper(modifier, scrim)
