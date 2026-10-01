@@ -37,14 +37,7 @@ class LimooVpnService : VpnService() {
          */
         fun reconnect() {
             val svc = instance ?: return
-            val ctx = svc.applicationContext
-            ctx.startService(Intent(ctx, LimooVpnService::class.java).setAction(ACTION_STOP))
-            svc.scope.launch {
-                val deadline = System.currentTimeMillis() + 4000
-                while (System.currentTimeMillis() < deadline && state.value != State.Idle) delay(120)
-                delay(250)
-                ctx.startForegroundService(Intent(ctx, LimooVpnService::class.java).setAction(ACTION_START))
-            }
+            svc.reconnectInPlace()
         }
         private const val NOTIF_ID = 1
         private const val CHANNEL = "limoo"
@@ -74,6 +67,8 @@ class LimooVpnService : VpnService() {
     private var tun: ParcelFileDescriptor? = null
     private var job: Job? = null
     private var counterJob: Job? = null
+    private var reconnectJob: Job? = null
+    private var stopJob: Job? = null
     internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val engine: CoreEngine by lazy { LibXrayEngine(this) }
 
@@ -90,7 +85,7 @@ class LimooVpnService : VpnService() {
         when (intent?.action) {
             ACTION_STOP -> { stopVpn(); return START_NOT_STICKY }
             // Reconnect is just stop-then-start; handled by the same path as a normal start.
-            ACTION_RECONNECT -> { stopVpn(); scope.launch { delay(200); startVpn() }; return START_STICKY }
+            ACTION_RECONNECT -> { reconnectInPlace(); return START_STICKY }
         }
         startVpn(); return START_STICKY // null intent = system restart / Always-on VPN
     }
@@ -144,6 +139,30 @@ class LimooVpnService : VpnService() {
             .addAction(Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_stat), getString(R.string.notif_retry), pending(ACTION_START, 2)).build())
             .addAction(Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_stat), getString(R.string.notif_disconnect), pending(ACTION_STOP, 0)).build())
             .build()
+
+    /**
+     * Re-establish the tunnel on the newly selected server, from inside the service.
+     *
+     * Restarting from the outside raced teardown: stopVpn() marks the state Idle and calls stopSelf()
+     * immediately, so an outside caller waiting for Idle is released instantly and its startForegroundService
+     * then lands on a service that is already being destroyed - the restart is silently dropped and the app
+     * sits disconnected until the user taps the ring again.
+     *
+     * Doing it in place removes the window: teardown completes, the core and tun fd are released, and only
+     * then does the new session start on the same instance. [stopVpn] takes `stayAlive` so the service is not
+     * stopped in between.
+     */
+    private fun reconnectInPlace() {
+        if (reconnectJob?.isActive == true) return
+        reconnectJob = scope.launch {
+            stopVpn(stayAlive = true)
+            // Wait for the core to actually release, so the new session starts against a clean slate.
+            val deadline = System.currentTimeMillis() + 3000
+            while (System.currentTimeMillis() < deadline && stopJob?.isActive == true) delay(80)
+            delay(300)
+            startVpn()
+        }
+    }
 
     private fun startVpn() {
         if (job?.isActive == true) return
@@ -307,7 +326,7 @@ class LimooVpnService : VpnService() {
      * and nothing reads it, so all traffic is dropped instead of leaking onto the open network.
      */
     private fun holdBlocked(msg: String) {
-        counterJob?.cancel(); counterJob = null; job = null
+        counterJob?.cancel(); counterJob = null; job?.cancel(); job = null; reconnectJob?.cancel()
         flushUsage()
         runCatching { engine.stop() }
         connectedAt.value = 0; traffic.value = null; trafficExact.value = false
@@ -319,15 +338,16 @@ class LimooVpnService : VpnService() {
      * Disconnect returns immediately: state, notification and the Home ring update first, and the slow part
      * (stopping the Go core, closing the tun fd) runs on a background thread.
      */
-    private fun stopVpn(keepError: Boolean = false) {
+    private fun stopVpn(keepError: Boolean = false, stayAlive: Boolean = false) {
         job?.cancel(); job = null; counterJob?.cancel(); counterJob = null
         flushUsage()
         if (!keepError) state.value = State.Idle
         connectedAt.value = 0; traffic.value = null; trafficExact.value = false; blocked.value = false
         stopForeground(STOP_FOREGROUND_REMOVE)
         val t = tun; tun = null
-        Thread({ runCatching { engine.stop() }; runCatching { t?.close() } }, "limoo-stop").start()
-        stopSelf()
+        // Record the teardown so a reconnect can wait for the core to actually let go before starting again.
+        stopJob = scope.launch { runCatching { engine.stop() }; runCatching { t?.close() } }
+        if (!stayAlive) { stopJob = null; stopSelf() }
     }
 
     override fun onRevoke() { stopVpn() }

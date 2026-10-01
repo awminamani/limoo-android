@@ -190,11 +190,15 @@ renders `BusyRow` and disables the confirm button.
 - **The row tracks the finger exactly, 1:1, at one constant speed** for its whole travel. An earlier
   version damped the drag past a threshold to feel "heavy"; it read as laggy instead, because the row
   fighting the touch desyncs it from the finger. Do not add damping, rubber-banding or per-zone speeds.
-- **Commit is communicated by position, not resistance.** The action plate behind the row grows and
-  brightens with the drag progress, so the consequence is visible while the finger is still down. The
-  arm point (45% of width) fires one haptic so it is confirmed by feel.
+- **Reveal, don't fire.** Past **75%** the row latches open: it completes its travel and the action button
+  appears at full size. Releasing does NOT run the action - the button has to be tapped. A gesture that
+  commits on release is how servers get deleted by accident.
+- **The button fills the revealed area** and the full row height. An earlier version used a small pill
+  detached from the row edge, which read as a floating control rather than part of the list.
 - **Animation only on release.** While a finger is down the row is driven straight from the drag value;
   the spring runs only when settling. Animating during the drag is what produced the jank.
+- Speed is deliberately unhurried: the travel is 75% of the row, so a normal swipe takes a deliberate
+  moment rather than a flick.
 - **Never destructive on the gesture itself.** The row stays in place and the caller acts; delete still
   goes through `Ui.say(..., "UNDO")`. A mis-swipe must always be recoverable.
 - Delete uses the signal colour - the one place a swipe background takes the accent.
