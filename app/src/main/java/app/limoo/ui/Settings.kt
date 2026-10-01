@@ -24,7 +24,9 @@ private fun Group(content: @Composable ColumnScope.() -> Unit) = NCard(Modifier.
 private fun Page(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
         Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            NButton("BACK", onBack, compact = true); Spacer(Modifier.width(14.dp)); DotText(title, dot = 3.dp, gap = 1.5.dp)
+            NButton("BACK", onBack, compact = true); Spacer(Modifier.width(14.dp))
+            // Bounded + auto-scaling: long page titles shrink to fit instead of running off screen.
+            Box(Modifier.weight(1f)) { DotText(title, dot = 3.dp, gap = 1.5.dp, maxWidth = 190.dp) }
         }
         content(); Spacer(Modifier.height(24.dp))
     }
@@ -76,6 +78,7 @@ fun SettingsScreen(store: Store, a: Actions) {
                 ChoiceRow("Mode", listOf("vpn", "proxy"), st.mode) { v -> upd { it.copy(mode = v) } }; NDivider()
                 ToggleRow("Connect on app start", st.autoConnect) { v -> upd { it.copy(autoConnect = v) } }; NDivider()
                 ToggleRow("Auto-select fastest server", st.autoSelect, "BEFORE EVERY CONNECT") { v -> upd { it.copy(autoSelect = v) } }; NDivider()
+                ToggleRow("Real delay test", st.realPing, "CORE PROBE - OFF MEANS A PLAIN TCP CONNECT") { v -> upd { it.copy(realPing = v) } }; NDivider()
                 ToggleRow("IPv6", st.ipv6) { v -> upd { it.copy(ipv6 = v) } }; NDivider()
                 ToggleRow("Allow LAN connections", st.allowLan, "SHARE THE PROXY ON YOUR NETWORK") { v -> upd { it.copy(allowLan = v) } }
             }

@@ -33,7 +33,7 @@ object Ui {
 }
 
 /** Everything the screens need from the activity. */
-class Actions(
+data class Actions(
     val toggle: () -> Unit, val reconnect: () -> Unit,
     val pasteImport: () -> Unit, val pickFile: () -> Unit, val scan: () -> Unit, val peekClip: () -> ImportPreview?,
     val share: (servers: List<Server>, name: String, note: String, expiresDays: Int, password: String?, asLink: Boolean) -> Unit,
@@ -41,13 +41,25 @@ class Actions(
     val commitImport: (preview: ImportPreview, chosen: List<Server>, group: String, restoreSettings: Boolean, subName: String) -> Unit,
     val unlock: (preview: ImportPreview, password: String) -> Unit,
     val addSub: (url: String, name: String) -> Unit,
+    /** Called with true/false as long work (import, subscription fetch) starts and finishes. */
+    val setBusy: (Boolean) -> Unit = {},
 )
 
 @Composable
 fun LimooRoot(
-    store: Store, state: State, error: String?, preview: ImportPreview?, clipOffer: ImportPreview?, a: Actions,
+    store: Store, state: State, error: String?, preview: ImportPreview?, clipOffer: ImportPreview?, aIn: Actions,
     onDismissPreview: () -> Unit, onDismissClip: () -> Unit, onOpenPreview: (ImportPreview) -> Unit,
 ) {
+    var busy by remember { mutableStateOf<String?>(null) }
+    // Counted, not boolean: an import can start several subscriptions at once, and the first one to finish
+    // must not hide the spinner while the rest are still running.
+    val busyCount = remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val a = remember(aIn) {
+        aIn.copy(setBusy = { on ->
+            busyCount.intValue = (busyCount.intValue + if (on) 1 else -1).coerceAtLeast(0)
+            busy = if (busyCount.intValue > 0) "WORKING" else null
+        })
+    }
     val n = LocalN.current
     var tab by rememberSaveable { mutableStateOf(0) }
     var addOpen by remember { mutableStateOf(false) }; var subForm by remember { mutableStateOf(false) }; var manual by remember { mutableStateOf(false) }
@@ -71,10 +83,15 @@ fun LimooRoot(
                     }, onDismiss = onDismissClip)
                 }
             }
+            AnimatedVisibility(busy != null) {
+                busy?.let { label ->
+                    NBusy(label, Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+                }
+            }
             Box(Modifier.weight(1f)) {
                 when (tab) {
-                    0 -> HomeScreen(store, state, error, a, onAdd = { addOpen = true })
-                    1 -> ServersScreen(store, a, onAdd = { addOpen = true })
+                    0 -> HomeScreen(store, state, error, a, onAdd = { addOpen = true }, busy = busy)
+                    1 -> ServersScreen(store, a, onAdd = { addOpen = true }, busy = busy)
                     else -> SettingsScreen(store, a)
                 }
             }
@@ -91,7 +108,7 @@ fun LimooRoot(
     }
     if (subForm) SubFormSheet(null, { subForm = false }) { name, url, _ -> a.addSub(url, name) }
     if (manual) ServerEditor(null, { store.upsert(it); manual = false; Ui.say("SERVER ADDED") }, { manual = false })
-    preview?.let { ImportSheet(it, existingKeys, a, onDismissPreview) }
+    preview?.let { ImportSheet(it, existingKeys, a, onDismissPreview, busy != null) }
 }
 
 @Composable

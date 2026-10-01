@@ -1,5 +1,6 @@
 package app.limoo.core
 
+import app.limoo.model.AppSettings
 import app.limoo.model.Server
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -15,6 +16,16 @@ object Latency {
             ((System.nanoTime() - t0) / 1_000_000).coerceAtLeast(1)
         } catch (e: Exception) { 0L }
     }
+
+    /**
+     * Real end-to-end delay for ONE server, measured by the core itself: spins a throwaway core with just
+     * this outbound and runs Xray's own observatory probe. Unlike [tcp] this includes TLS handshake and
+     * the server's real RTT, which is what a user means by "ping". -1 = failed/unsupported.
+     */
+    suspend fun real(s: Server, st: AppSettings, geoDir: String, url: String, timeoutMs: Int = 8000): Long =
+        withContext(Dispatchers.IO) {
+            runCatching { CoreDelay.measure(XrayConfigBuilder.build(s, st, false), url) }.getOrDefault(-1L)
+        }
 
     /** Real end-to-end delay: HTTP request through the running core's local SOCKS inbound. 0 = failed. */
     suspend fun viaProxy(socksPort: Int, url: String, timeoutMs: Int = 8000): Long = withContext(Dispatchers.IO) {

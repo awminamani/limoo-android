@@ -34,6 +34,7 @@ class Store(ctx: Context) {
         fun hostOf(url: String) = url.substringAfter("://").substringBefore('/').substringBefore('?')
     }
 
+    private val appContext = ctx.applicationContext
     private val sp = ctx.getSharedPreferences("limoo", Context.MODE_PRIVATE)
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
@@ -91,17 +92,30 @@ class Store(ctx: Context) {
 
     fun removeDead(): Int { val dead = servers.value.filter { it.pingMs == 0L }.map { it.id }.toSet(); if (dead.isNotEmpty()) removeMany(dead); return dead.size }
 
-    /** TCP-connect latency (pingMs: -1 untested, 0 timeout, else ms). ids == null tests everything. */
-    suspend fun pingAll(ids: Collection<String>? = null) {
+    /** Latency test. ids == null tests everything. Real mode uses the core's own probe (slower, accurate). */
+    suspend fun pingAll(ids: Collection<String>? = null, real: Boolean = false) {
         val targets = servers.value.filter { ids == null || it.id in ids }
         pinging.update { it + targets.map { s -> s.id } }
+        val st = settings.value
         coroutineScope {
-            val sem = Semaphore(8)
-            targets.map { s -> async { sem.withPermit { setPing(s.id, Latency.tcp(s)); pinging.update { it - s.id } } } }.awaitAll()
+            // The real probe spins up a throwaway core per server, so keep concurrency low.
+            val sem = Semaphore(if (real) 2 else 8)
+            targets.map { s ->
+                async {
+                    val ms = sem.withPermit { if (real) pingReal(s, st) else Latency.tcp(s) }
+                    setPing(s.id, ms); pinging.update { it - s.id }
+                }
+            }.awaitAll()
         }
     }
 
-    suspend fun autoSelectBest() { pingAll(); servers.value.filter { it.pingMs > 0 }.minByOrNull { it.pingMs }?.let { select(it.id) } }
+    /** Real delay, falling back to TCP when the core probe is unavailable (-1) or fails (0). */
+    private suspend fun pingReal(s: Server, st: AppSettings): Long {
+        val ms = Latency.real(s, st, appContext.filesDir.absolutePath, st.testUrl)
+        return if (ms > 0) ms else if (ms == 0L) 0L else Latency.tcp(s)
+    }
+
+    suspend fun autoSelectBest(real: Boolean = false) { pingAll(real = real); servers.value.filter { it.pingMs > 0 }.minByOrNull { it.pingMs }?.let { select(it.id) } }
 
     fun update(f: (AppSettings) -> AppSettings) { settings.value = f(settings.value); persist() }
 

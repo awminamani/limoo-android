@@ -37,7 +37,8 @@ class MainActivity : ComponentActivity() {
     private val store get() = (application as LimooApp).store
     private var preview by mutableStateOf<ImportPreview?>(null)
     private var clipOffer by mutableStateOf<ImportPreview?>(null)
-    private val dismissedClips = HashSet<Int>()
+    private var dismissedClips = HashSet<Int>()
+    private var busyCount = 0
 
     private val vpnPermission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { if (it.resultCode == RESULT_OK) startVpn() }
     private val filePicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let { u -> read(u)?.let { open(it, "FILE") } } }
@@ -52,7 +53,7 @@ class MainActivity : ComponentActivity() {
             peekClip = { clipText()?.let { t -> runCatching { Importer.parse(t, "CLIPBOARD") }.getOrNull() } },
             share = ::share, exportBackup = ::exportBackup,
             commitImport = ::commit, unlock = { p, pw -> open(p.raw, p.source, pw) },
-            addSub = ::addSub,
+            addSub = ::addSub, setBusy = ::setBusy,
         )
     }
 
@@ -127,8 +128,11 @@ class MainActivity : ComponentActivity() {
 
     private fun commit(p: ImportPreview, chosen: List<Server>, group: String, restore: Boolean, subName: String) {
         preview = null; clipOffer = null; dismissedClips += p.raw.hashCode()
-        val added = store.addServers(chosen.map { if (group.isNotEmpty() && it.group.isEmpty()) it.copy(group = group) else it })
+        val work = p.subUrls.isNotEmpty()
+        setBusy(work)
+        val added = store.addServers(chosen.map { if (group.isNotEmpty() && it.group.isEmpty()) it.copy(group = group) else it } })
         if (restore) p.settings?.let { s -> store.update { s } }
+        if (work) lifecycleScope.launch { delay(120); setBusy(false) }   // subscription fetches continue in background
         p.subUrls.forEach { u -> addSub(u, if (p.subUrls.size == 1) subName else "") }
         when {
             added.isNotEmpty() -> { val ids = added.map { it.id }.toSet(); Ui.say("IMPORTED ${added.size}", "UNDO") { store.removeMany(ids) } }
@@ -138,9 +142,18 @@ class MainActivity : ComponentActivity() {
 
     private fun addSub(url: String, name: String) {
         lifecycleScope.launch {
+            setBusy(true)
             runCatching { store.addSubscription(url, name) }.onSuccess { Ui.say("SUBSCRIPTION ADDED - $it SERVERS") }.onFailure { Ui.say("SUBSCRIPTION FAILED: ${it.message}") }
+            setBusy(false)
         }
     }
+
+    /**
+     * Marks long work (import, subscription fetch) so the UI can show progress. Reference-counted because an
+     * import can kick off several subscriptions at once; without counting, the first to finish would hide the
+     * spinner while the others are still running.
+     */
+    private fun setBusy(on: Boolean) { busyCount = (busyCount + if (on) 1 else -1).coerceAtLeast(0) }
 
     // ---------- share / backup ----------
     private fun share(servers: List<Server>, name: String, note: String, days: Int, pw: String?, asLink: Boolean) {
@@ -174,6 +187,20 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun stop() { startService(Intent(this, LimooVpnService::class.java).setAction(LimooVpnService.ACTION_STOP)) }
-    private fun reconnect() { stop(); lifecycleScope.launch { delay(700); startVpn() } }
+
+    /**
+     * Reconnect with the currently selected server. Always stops the running core first (releasing the tun fd
+     * and the old outbound), waits for the service to settle, then starts again - so switching servers while
+     * connected cannot leave two cores running or reuse a stale tunnel.
+     */
+    private fun reconnect() {
+        stop()
+        lifecycleScope.launch {
+            val deadline = System.currentTimeMillis() + 4000
+            while (System.currentTimeMillis() < deadline && LimooVpnService.state.value != LimooVpnService.State.Idle) delay(120)
+            delay(250)
+            startVpn()
+        }
+    }
     private fun startVpn() { startForegroundService(Intent(this, LimooVpnService::class.java).setAction(LimooVpnService.ACTION_START)) }
 }

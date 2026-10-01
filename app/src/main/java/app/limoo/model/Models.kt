@@ -38,7 +38,7 @@ data class AppSettings(
     val remoteDns: String = "https://1.1.1.1/dns-query", val directDns: String = "8.8.8.8",
     // routing
     val routingPreset: String = "global",            // global | bypassIran | bypassChina | bypassRussia
-    val blockAds: Boolean = true, val customRules: String = "",   // JSON array of Xray rules
+    val blockAds: Boolean = false, val customRules: String = "",   // JSON array of Xray rules
     // advanced
     val sniffing: Boolean = true, val mux: Boolean = false, val muxConcurrency: Int = 8,
     val fragment: Boolean = false, val fragmentPackets: String = "tlshello",
@@ -57,4 +57,6 @@ data class AppSettings(
     val accent: String = "red", val haptics: Boolean = true, val privacyMode: Boolean = false,
     val autoConnect: Boolean = false, val clipboardWatch: Boolean = true, val sortBy: String = "manual",
     val testUrl: String = "https://www.gstatic.com/generate_204", val autoSelect: Boolean = false,
+    // true = use the core's own delay probe instead of a plain TCP connect (slower, but real RTT)
+    val realPing: Boolean = true,
 )

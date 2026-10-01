@@ -48,22 +48,34 @@ fun mask(s: String, on: Boolean) = if (!on) s else if (s.length <= 4) "****" els
 
 class Traffic(val down: Long = 0, val up: Long = 0, val totalDown: Long = 0, val totalUp: Long = 0)
 
-/** Per-second speed and session totals from Android's per-app counters (approximate, includes protocol overhead). */
+/**
+ * Speed and session totals. Prefers the core's own counters (exact, excludes protocol overhead); falls back
+ * to Android's per-app counters when the core is not running or does not report stats.
+ * [exact] tells the UI which source is in use so it can say so.
+ */
 @Composable
-fun rememberTraffic(active: Boolean): Traffic {
+fun rememberTraffic(active: Boolean): Pair<Traffic, Boolean> {
     var t by remember { mutableStateOf(Traffic()) }
+    var exact by remember { mutableStateOf(false) }
     LaunchedEffect(active) {
-        t = Traffic()
+        t = Traffic(); exact = false
         if (!active) return@LaunchedEffect
         val uid = Process.myUid()
         val r0 = TrafficStats.getUidRxBytes(uid); val t0 = TrafficStats.getUidTxBytes(uid); var lr = r0; var lt = t0
+        var cr = 0L; var cu = 0L
         while (true) {
             delay(1000)
-            val r = TrafficStats.getUidRxBytes(uid); val x = TrafficStats.getUidTxBytes(uid)
-            t = Traffic(r - lr, x - lt, r - r0, x - t0); lr = r; lt = x
+            val core = LimooVpnService.traffic.value
+            if (core != null) {
+                exact = true
+                t = Traffic(core.down - cr, core.up - cu, core.down, core.up); cr = core.down; cu = core.up
+            } else {
+                val r = TrafficStats.getUidRxBytes(uid); val x = TrafficStats.getUidTxBytes(uid)
+                t = Traffic(r - lr, x - lt, r - r0, x - t0); lr = r; lt = x
+            }
         }
     }
-    return t
+    return t to exact
 }
 
 /** The hero control: a ring of dots. Dim = off, comet = connecting, full = connected, red = error. */
@@ -118,7 +130,7 @@ private fun Tile(label: String, value: String, active: Boolean, modifier: Modifi
 }
 
 @Composable
-fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: () -> Unit) {
+fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: () -> Unit, busy: String? = null) {
     val n = LocalN.current
     val servers by store.servers.collectAsState(); val selId by store.selectedId.collectAsState()
     val st by store.settings.collectAsState(); val subs by store.subs.collectAsState()
@@ -128,7 +140,7 @@ fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: ()
     val scope = rememberCoroutineScope(); var pickOpen by remember { mutableStateOf(false) }
     var realMs by remember { mutableStateOf<Long?>(null) }; var testing by remember { mutableStateOf(false) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    val traffic = rememberTraffic(on)
+    val (traffic, exactTraffic) = rememberTraffic(on)
 
     suspend fun runTest() { testing = true; realMs = Latency.viaProxy(st.socksPort, st.testUrl); testing = false }
     LaunchedEffect(on, sel?.id) { realMs = null; if (on) { delay(1500); runTest() } }
@@ -143,7 +155,7 @@ fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: ()
         Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             DotText("LIMOO", dot = 3.dp, gap = 1.5.dp)
             Spacer(Modifier.weight(1f))
-            NLabel(st.mode.uppercase() + if (st.privacyMode) " - PRIVATE" else "")
+            NLabel(st.routingPreset.removePrefix("bypass").ifEmpty { "ALL" }.uppercase() + if (st.privacyMode) " - PRIVATE" else "")
         }
 
         ConnectRing(state, enabled = sel != null, onClick = a.toggle, modifier = Modifier.fillMaxWidth(.74f).padding(top = 20.dp))
@@ -193,11 +205,19 @@ fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: ()
                 NCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
                         Row(Modifier.fillMaxWidth()) {
-                            Column(Modifier.weight(1f)) { NLabel("DOWN"); DotText("↓ " + fmtBytes(traffic.down) + "/S", Modifier.padding(top = 8.dp), dot = 2.5.dp, gap = 1.dp) }
-                            Column(Modifier.weight(1f)) { NLabel("UP"); DotText("↑ " + fmtBytes(traffic.up) + "/S", Modifier.padding(top = 8.dp), dot = 2.5.dp, gap = 1.dp) }
+                            // Fixed 150dp slots: the pitch auto-scales inside, so the numbers never clip and
+                            // the row never changes height as the values change.
+                            Column(Modifier.weight(1f)) {
+                                NLabel("DOWN")
+                                DotTextFixed("↓ " + fmtBytes(traffic.down) + "/S", 150.dp, 16.dp, Modifier.padding(top = 8.dp))
+                            }
+                            Column(Modifier.weight(1f)) {
+                                NLabel("UP")
+                                DotTextFixed("↑ " + fmtBytes(traffic.up) + "/S", 150.dp, 16.dp, Modifier.padding(top = 8.dp))
+                            }
                         }
                         Text(
-                            "SESSION  DOWN ${fmtBytes(traffic.totalDown)}  UP ${fmtBytes(traffic.totalUp)}".uppercase(),
+                            ("SESSION  DOWN ${fmtBytes(traffic.totalDown)}  UP ${fmtBytes(traffic.totalUp)}" + if (exactTraffic) "  EXACT" else "").uppercase(),
                             style = NType.label, color = n.dim, modifier = Modifier.padding(top = 14.dp),
                         )
                     }

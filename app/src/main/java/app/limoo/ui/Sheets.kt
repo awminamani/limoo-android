@@ -50,7 +50,9 @@ fun SubFormSheet(initial: Subscription?, onDismiss: () -> Unit, onSave: (name: S
         NField("URL", url, { url = it.trim() }, placeholder = "https://")
         NField("NAME (OPTIONAL)", name, { name = it })
         if (initial != null) ToggleRow("Auto-update", auto) { auto = it }
-        NButton(if (initial == null) "ADD AND FETCH" else "SAVE", { onSave(name.trim(), url, auto); onDismiss() }, Modifier.fillMaxWidth().padding(top = 14.dp), primary = true, enabled = url.startsWith("http"))
+        val ok = url.startsWith("http")
+        if (initial == null && ok) NBusy("FETCHES ON SAVE", "SUBSCRIPTION")
+        NButton(if (initial == null) "ADD AND FETCH" else "SAVE", { onSave(name.trim(), url, auto); onDismiss() }, Modifier.fillMaxWidth().padding(top = 14.dp), primary = true, enabled = ok)
     }
 }
 
@@ -126,7 +128,7 @@ fun SubsSheet(store: Store, onDismiss: () -> Unit) {
 // ============================== import preview ==============================
 
 @Composable
-fun ImportSheet(p: ImportPreview, existingKeys: Set<String>, a: Actions, onDismiss: () -> Unit) {
+fun ImportSheet(p: ImportPreview, existingKeys: Set<String>, a: Actions, onDismiss: () -> Unit, busy: Boolean = false) {
     val n = LocalN.current
     var pw by remember(p) { mutableStateOf("") }
     val dupes = remember(p) { p.servers.filter { Store.key(it) in existingKeys }.map { it.id }.toSet() }
@@ -174,10 +176,12 @@ fun ImportSheet(p: ImportPreview, existingKeys: Set<String>, a: Actions, onDismi
             if (p.settings != null) ToggleRow("Also restore settings", restore, "FROM BACKUP") { restore = it }
 
             val count = chosen.size + p.subUrls.size
+            if (busy) NBusyBlock("IMPORTING", "${chosen.size} SERVERS - ${p.subUrls.size} SUBSCRIPTIONS")
             Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                NButton("CANCEL", onDismiss, Modifier.weight(1f))
-                NButton(if (count > 0 || restore) "IMPORT $count" else "IMPORT", { a.commitImport(p, p.servers.filter { it.id in chosen }, group.trim(), restore, subName.trim()) },
-                    Modifier.weight(1f), primary = true, enabled = count > 0 || restore)
+                NButton("CANCEL", onDismiss, Modifier.weight(1f), enabled = !busy)
+                NButton(if (busy) "..." else if (count > 0 || restore) "IMPORT $count" else "IMPORT",
+                    { a.commitImport(p, p.servers.filter { it.id in chosen }, group.trim(), restore, subName.trim()) },
+                    Modifier.weight(1f), primary = true, enabled = !busy && (count > 0 || restore))
             }
         }
     }

@@ -9,7 +9,13 @@ interface CoreEngine {
     fun start(configJson: String, tunFd: Int, st: AppSettings)   // tunFd = -1 in proxy-only mode
     fun stop()
     fun measureDelay(configJson: String, url: String): Long
+
+    /** Exact byte counters from the running core, or null when unavailable. */
+    fun queryTraffic(): CoreTraffic? = null
 }
+
+/** Bytes counted by the Xray core itself (not Android's per-app estimates). */
+data class CoreTraffic(val up: Long, val down: Long)
 
 /**
  * Talks to libv2ray.aar (2dust/AndroidLibXrayLite) through reflection, so the app compiles with or without the AAR and a
@@ -67,4 +73,48 @@ class LibXrayEngine(private val ctx: Context) : CoreEngine {
         val m = lib().methods.first { it.name == "measureOutboundDelay" }
         (call(m, null, configJson, url) as Number).toLong()
     }.getOrDefault(-1L)
+
+    /**
+     * CoreController.queryAllOutboundTrafficStats() returns a JSON document of per-outbound counters.
+     * The proxy outbound is tagged "proxy" (see XrayConfigBuilder); other tags are summed so the number
+     * still moves when traffic takes a different route. Returns null when the core is not running or the
+     * shape is not recognised, so callers can fall back to Android's per-app counters.
+     */
+    override fun queryTraffic(): CoreTraffic? {
+        val c = controller ?: return null
+        val m = c.javaClass.methods.firstOrNull { it.name == "queryAllOutboundTrafficStats" && it.parameterCount == 0 } ?: return null
+        val raw = call(m, c) as? String ?: return null
+        return CoreStats.parse(raw)
+    }
+}
+
+/**
+ * Xray's own delay probe: Libv2ray.measureOutboundDelay(configJson, url) builds a temporary core with a
+ * single outbound and reports the real round-trip in ms. Needs no Android Context, so it can be called
+ * from the UI layer for any server without disturbing the running core. -1 = failed or unavailable.
+ */
+object CoreDelay {
+    fun measure(configJson: String, url: String): Long = try {
+        val l = Class.forName("libv2ray.Libv2ray")
+        val m = l.methods.first { it.name == "measureOutboundDelay" }
+        (m.invoke(null, configJson, url) as Number).toLong()
+    } catch (e: Throwable) { -1L }
+}
+
+/** Parser for the core's traffic-statistics JSON. Lenient on purpose: shapes differ between core builds. */
+object CoreStats {
+    private val num = Regex("\"?(up|down)\"?\\s*:\\s*(\\d+)")
+
+    fun parse(raw: String): CoreTraffic? {
+        val text = raw.trim()
+        if (text.isEmpty() || text == "{}" || text.startsWith("error", true)) return null
+        // Preferred shape: { "<tag>": { "up": N, "down": N }, ... } - sum every counter we can find.
+        var up = 0L; var down = 0L; var seen = false
+        num.findAll(text).forEach { m ->
+            val v = m.groupValues[2].toLongOrNull() ?: return@forEach
+            if (m.groupValues[1] == "up") up += v else down += v
+            seen = true
+        }
+        return if (seen) CoreTraffic(up, down) else null
+    }
 }

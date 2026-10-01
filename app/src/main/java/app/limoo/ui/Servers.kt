@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -70,7 +71,7 @@ private fun ServerRow(
                         color = if (s.pingMs == 0L) n.accent else n.dim, modifier = Modifier.padding(top = 4.dp),
                     )
                 }
-                if (!selecting) IconButton(onMenu) { Text("...", style = NType.label, color = n.dim) } else Spacer(Modifier.width(12.dp))
+                if (!selecting) NDots(onMenu) else Spacer(Modifier.width(12.dp))
             }
         }
     }
@@ -78,7 +79,7 @@ private fun ServerRow(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit) {
+fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit, busy: String? = null) {
     val n = LocalN.current; val ctx = LocalContext.current; val scope = rememberCoroutineScope()
     val servers by store.servers.collectAsState(); val selId by store.selectedId.collectAsState(); val st by store.settings.collectAsState()
     val pinging by store.pinging.collectAsState()
@@ -88,6 +89,7 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit) {
     var editing by remember { mutableStateOf<Server?>(null) }; var qr by remember { mutableStateOf<Server?>(null) }
     var subsOpen by remember { mutableStateOf(false) }; var shareList by remember { mutableStateOf<List<Server>?>(null) }
     var groupFor by remember { mutableStateOf<Set<String>?>(null) }; var confirmWipe by remember { mutableStateOf(false) }
+    var refreshingSubs by remember { mutableStateOf(false) }
     val selecting = picked.isNotEmpty()
     BackHandler(selecting) { picked = emptySet() }
 
@@ -120,9 +122,12 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit) {
                     NButton("DONE", { picked = emptySet() }, primary = true, compact = true)
                 } else {
                     DotText("SERVERS", dot = 3.dp, gap = 1.5.dp); Spacer(Modifier.width(10.dp)); NLabel("${servers.size}"); Spacer(Modifier.weight(1f))
-                    NButton("PING", { scope.launch { store.pingAll(visible.map { it.id }) } }, compact = true); Spacer(Modifier.width(8.dp))
+                    NButton(if (st.realPing) "PING" else "TCP", { scope.launch { store.pingAll(visible.map { it.id }, real = st.realPing) } }, compact = true); Spacer(Modifier.width(8.dp))
                     NButton("MORE", { moreOpen = true }, compact = true)
                 }
+            }
+            if (refreshingSubs || busy != null) {
+                NBusy(busy ?: "UPDATING SUBSCRIPTIONS"); Spacer(Modifier.height(4.dp))
             }
             Spacer(Modifier.height(12.dp))
             NSearch(query, { query = it })
@@ -141,9 +146,28 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit) {
                 }
                 sections.forEach { (g, list) ->
                     if (grouped) item("h:$g") {
-                        Row(Modifier.fillMaxWidth().clip(CircleShape).clickable { collapsed = if (g in collapsed) collapsed - g else collapsed + g }.padding(top = 10.dp, bottom = 2.dp, start = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            NLabel((if (g.isEmpty()) "MY SERVERS" else g) + "  " + list.size, Modifier.weight(1f))
-                            NLabel(if (g in collapsed) "SHOW" else "HIDE")
+                        val sub = store.subs.value.firstOrNull { it.name == g }
+                        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { collapsed = if (g in collapsed) collapsed - g else collapsed + g }.padding(top = 12.dp, bottom = 4.dp, start = 6.dp, end = 6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                NLabel((if (g.isEmpty()) "MY SERVERS" else g) + "  " + list.size, Modifier.weight(1f))
+                                NLabel(if (g in collapsed) "SHOW" else "HIDE")
+                            }
+                            // Data left / days left for this subscription, when the provider reports it.
+                            if (sub != null && (sub.total > 0 || sub.expire > 0)) {
+                                val used = sub.upload + sub.download
+                                val days = (sub.expire - System.currentTimeMillis() / 1000) / 86_400L
+                                Row(Modifier.padding(top = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    if (sub.total > 0) {
+                                        DotBar(used.toFloat() / sub.total, Modifier.weight(1f).padding(end = 10.dp), count = 16)
+                                        NLabel("${fmtBytesShort(used)}/${fmtBytesShort(sub.total)}")
+                                    } else Spacer(Modifier.weight(1f))
+                                    if (sub.expire > 0) NLabel(
+                                        when { days < 0 -> "EXPIRED"; days == 0L -> "ENDS TODAY"; else -> "${days}D LEFT" },
+                                        Modifier.padding(start = if (sub.total > 0) 10.dp else 0.dp),
+                                        color = if (days < 3) n.accent else n.dim,
+                                    )
+                                }
+                            }
                         }
                     }
                     if (!grouped || g !in collapsed) items(list, key = { it.id }) { s ->
@@ -165,7 +189,7 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 NButton("FAV", { store.toggleFav(picked) }, compact = true)
-                NButton("PING", { val ids = picked; scope.launch { store.pingAll(ids) } }, compact = true)
+                NButton("PING", { val ids = picked; scope.launch { store.pingAll(ids, real = st.realPing) } }, compact = true)
                 NButton("SHARE", { shareList = servers.filter { it.id in picked } }, compact = true)
                 NButton("GROUP", { groupFor = picked }, compact = true)
                 NButton("DELETE", { deleteWithUndo(picked); picked = emptySet() }, danger = true, compact = true)
@@ -187,7 +211,7 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit) {
             SheetRow("QR code") { rowMenu = null; qr = s }
             SheetRow("Copy link") { rowMenu = null; copyLink(s) }
             SheetRow("Share as .limoo") { rowMenu = null; shareList = listOf(s) }
-            SheetRow("Test latency") { rowMenu = null; scope.launch { store.pingAll(listOf(s.id)) } }
+            SheetRow(if (st.realPing) "Test real delay" else "Test latency") { rowMenu = null; scope.launch { store.pingAll(listOf(s.id), real = st.realPing) } }
             SheetRow("Move to group") { rowMenu = null; groupFor = setOf(s.id) }
             SheetRow("Delete", danger = true) { rowMenu = null; deleteWithUndo(setOf(s.id)) }
         }
@@ -195,9 +219,9 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit) {
 
     if (moreOpen) NSheet({ moreOpen = false }) {
         NLabel("SERVER TOOLS", Modifier.padding(bottom = 6.dp))
-        SheetRow("Select best server", "LOWEST LATENCY") { moreOpen = false; scope.launch { store.autoSelectBest(); Ui.say("BEST SERVER SELECTED") } }
+        SheetRow("Select best server", if (st.realPing) "REAL DELAY - SLOWER" else "TCP LATENCY") { moreOpen = false; scope.launch { store.autoSelectBest(real = st.realPing); Ui.say("BEST SERVER SELECTED") } }
         SheetRow("Sort", st.sortBy.uppercase()) { moreOpen = false; sortOpen = true }
-        SheetRow("Update subscriptions") { moreOpen = false; scope.launch { store.refreshAll(force = true); Ui.say("SUBSCRIPTIONS UPDATED") } }
+        SheetRow("Update subscriptions") { moreOpen = false; refreshingSubs = true; scope.launch { store.refreshAll(force = true); refreshingSubs = false; Ui.say("SUBSCRIPTIONS UPDATED") } }
         SheetRow("Manage subscriptions") { moreOpen = false; subsOpen = true }
         SheetRow("Select all") { moreOpen = false; picked = servers.map { it.id }.toSet() }
         SheetRow("Remove duplicates") { moreOpen = false; val c = store.removeDuplicates(); Ui.say(if (c == 0) "NO DUPLICATES" else "REMOVED $c") }
