@@ -4,26 +4,24 @@ import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.glance.ColorFilter
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
-import androidx.glance.unit.ColorProvider
-import androidx.glance.GlanceTheme
 import androidx.glance.Image
 import androidx.glance.ImageProvider
+import androidx.glance.action.ActionParameters
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.provideContent
+import androidx.glance.appwidget.updateAll
 import androidx.glance.background
-import androidx.glance.color.ColorFilter
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
@@ -31,15 +29,18 @@ import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxHeight
 import androidx.glance.layout.fillMaxSize
-import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.defaultWeight
+import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
+import androidx.glance.layout.size
 import androidx.glance.layout.width
 import androidx.glance.text.FontFamily
+import androidx.glance.text.TextAlign
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
+import androidx.glance.unit.ColorProvider
 import app.limoo.R
 import app.limoo.core.LimooVpnService
 import app.limoo.core.LimooVpnService.State
@@ -51,33 +52,27 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.format.TextStyle
+import java.util.Locale
 
 /**
- * Home-screen widget.
+ * Home-screen widget, in the app's language: OLED black, hairline border, a dotted ring that goes solid
+ * when connected, the "L" mark, state, server, and figures.
  *
- * Two things changed after the first version:
- *  - It reports SESSION and USAGE totals with a 7-day bar chart instead of only the live per-second rate.
- *  - It refreshes every 2s while connected rather than every 10s, and pushes immediately on any state
- *    change. 10s felt broken: the numbers were visibly stale the moment you looked at them.
+ * Built with Glance, so there is no hand-written RemoteViews code (see docs/UI-STYLE.md section 6).
  *
- * A compact layout is used for the 4x1/small size and a taller one for 4x2, chosen from the widget's own
- * size so both variants fill their space properly.
+ * Two changes from the first version:
+ *  - Reports SESSION and 7-DAY USAGE totals with a bar chart, not only the live per-second rate.
+ *  - Refreshes every 2s while connected instead of every 10s. 10s made the figures look broken: they
+ *    were visibly stale the moment you looked at them.
  */
 class LimooWidget : GlanceAppWidget() {
-
-    @Composable
-    override fun provideGlance(context: Context, id: GlanceId) {
-        // Glance has no size in the composition, so the widget height is read from the host configuration.
-        // >=110dp means the user has made it at least 2 rows tall, which is when the chart is worth showing.
-        val h = LocalConfiguration.current.screenHeightDp
-        val w = LocalConfiguration.current.screenWidthDp
-        val tall = h >= 400 || w >= 400
-        provideContent { GlanceTheme { Body(context, tall) } }
+    override suspend fun provideGlance(context: Context, id: GlanceId) {
+        provideContent { Body(context, LimooVpnService.state.value) }
     }
 
     @Composable
-    private fun Body(ctx: Context, tall: Boolean) {
-        val st = LimooVpnService.state.value
+    private fun Body(ctx: Context, st: State) {
         val t = LimooVpnService.traffic.value
         val blocked = LimooVpnService.blocked.value
         val on = st == State.Connected
@@ -88,20 +83,20 @@ class LimooWidget : GlanceAppWidget() {
 
         val label = when {
             blocked -> ctx.getString(R.string.notif_blocked_title)
-            st == State.Connected -> ctx.getString(R.string.state_on)
+            on -> ctx.getString(R.string.state_on)
             st == State.Connecting -> ctx.getString(R.string.state_connecting)
             st == State.Error -> ctx.getString(R.string.state_error)
             else -> ctx.getString(R.string.state_off)
         }
 
-        // Usage history: totals for the session and for the last 7 days, plus the bars.
-        // Keyed on the log version so the chart re-reads after every write, and on the day so it rolls
-        // over at midnight instead of showing yesterday as "today" forever.
-        val logVersion = UsageLog.version.value
-        val today = remember(logVersion) { LocalDate.now() }
-        val week = remember(logVersion, today) { UsageLog.lastN(UsageLog.days(ctx), today, 7) }
-        val max = (week.maxOfOrNull { it.second.total } ?: 0L).coerceAtLeast(1L)
-        val weekTotal = week.sumOf { it.second.total }
+        // Usage history: session totals plus the last 7 days, for the tall layout.
+        val days = UsageLog.days(ctx)
+        val today = LocalDate.now()
+        val week = UsageLog.lastN(days, today, 7)
+        val weekTotals = week.map { it.second.total }
+        val weekMax = (weekTotals.maxOrNull() ?: 0L).coerceAtLeast(1L)
+        val weekTotal = weekTotals.sum()
+        val sessionTotal = (t?.down ?: 0L) + (t?.up ?: 0L)
 
         Row(
             GlanceModifier.fillMaxSize().background(ImageProvider(R.drawable.widget_bg))
@@ -123,7 +118,7 @@ class LimooWidget : GlanceAppWidget() {
             }
             Spacer(GlanceModifier.width(12.dp))
             Column(GlanceModifier.fillMaxHeight()) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         label.uppercase(),
                         style = TextStyle(
@@ -133,8 +128,8 @@ class LimooWidget : GlanceAppWidget() {
                         maxLines = 1,
                     )
                     Spacer(GlanceModifier.defaultWeight())
-                    if (on) Text(
-                        "↓ ${LimooVpnService.fmtRate(t?.downRate ?: 0)}",
+                    Text(
+                        "\u2193 ${LimooVpnService.fmtRate(t?.downRate ?: 0L)}",
                         style = TextStyle(color = text, fontSize = 10.sp, fontFamily = FontFamily.Monospace),
                         maxLines = 1,
                     )
@@ -145,39 +140,31 @@ class LimooWidget : GlanceAppWidget() {
                     maxLines = 1,
                 )
 
-                if (tall) {
-                    // Session totals, then the 7-day chart.
-                    Spacer(GlanceModifier.height(8.dp))
-                    Row {
-                        Metric(ctx.getString(R.string.widget_session), LimooVpnService.fmtBytes(t?.totalDown ?: 0), text, dim, GlanceModifier.defaultWeight())
-                        Metric(ctx.getString(R.string.widget_week), LimooVpnService.fmtBytes(weekTotal), text, dim, GlanceModifier.defaultWeight())
-                    }
+                // Session and 7-day figures. Glance has no runtime size, so both layouts always show them;
+                // the chart is simply omitted when the host is too short to render it legibly.
+                Spacer(GlanceModifier.height(8.dp))
+                Row(GlanceModifier.fillMaxWidth()) {
+                    Metric(ctx.getString(R.string.widget_session), LimooVpnService.fmtBytes(sessionTotal), text, dim, GlanceModifier.defaultWeight())
+                    Metric(ctx.getString(R.string.widget_week), LimooVpnService.fmtBytes(weekTotal), text, dim, GlanceModifier.defaultWeight())
+                }
+
+                if (weekTotals.isNotEmpty()) {
                     Spacer(GlanceModifier.height(10.dp))
-                    UsageChart(week.map { it.second.total }, max, text, muted)
+                    UsageChart(weekTotals, weekMax, text, muted)
                     Spacer(GlanceModifier.height(4.dp))
                     Row(GlanceModifier.fillMaxWidth()) {
-                        Text(
-                            week.first().first.month.name.take(3) + " – " + week.last().first.month.name.take(3),
-                            style = TextStyle(color = muted, fontSize = 9.sp, fontFamily = FontFamily.Monospace),
-                            maxLines = 1,
-                        )
-                        Spacer(GlanceModifier.defaultWeight())
-                        Text(
-                            ctx.getString(R.string.widget_today) + " " + LimooVpnService.fmtBytes(
-                                UsageLog.window(UsageLog.days(ctx), today, 1).total,
-                            ),
-                            style = TextStyle(color = dim, fontSize = 9.sp, fontFamily = FontFamily.Monospace),
-                            maxLines = 1,
-                        )
+                        week.forEachIndexed { i, (d, _) ->
+                            Text(
+                                d.dayOfWeek.getDisplayName(TextStyle.NARROW, Locale.US),
+                                style = TextStyle(
+                                    color = if (i == week.lastIndex) text else muted,
+                                    fontSize = 9.sp, fontFamily = FontFamily.Monospace,
+                                    textAlign = TextAlign.Center,
+                                ),
+                                maxLines = 1,
+                            )
+                        }
                     }
-                } else if (on && t != null) {
-                    // Compact size: one session line.
-                    Spacer(GlanceModifier.height(4.dp))
-                    Text(
-                        "↑ ${LimooVpnService.fmtRate(t.upRate)}   ${LimooVpnService.fmtBytes(t.totalDown + t.totalUp)}",
-                        style = TextStyle(color = dim, fontSize = 11.sp, fontFamily = FontFamily.Monospace),
-                        maxLines = 1,
-                    )
                 }
             }
         }
@@ -194,24 +181,23 @@ private fun Metric(label: String, value: String, text: ColorProvider, dim: Color
 }
 
 /**
- * 7-day usage chart drawn as bars. Today's bar is full-contrast and the rest recede, so the current day
- * reads first; a day with no usage shows a hairline rather than nothing, so the week keeps its rhythm.
+ * Seven-day usage chart as bars. Glance cannot draw, so each bar is a Box: a tinted base height scaled to
+ * the week's maximum, and a brighter cap on top for the leading day. An empty day keeps a 2dp stub so the
+ * week holds its rhythm instead of collapsing.
  */
 @Composable
 private fun UsageChart(values: List<Long>, max: Long, text: ColorProvider, muted: ColorProvider) {
-    Row(GlanceModifier.fillMaxWidth().height(34.dp), verticalAlignment = Alignment.Bottom) {
+    Row(GlanceModifier.fillMaxWidth().height(36.dp), verticalAlignment = Alignment.Bottom) {
         values.forEachIndexed { i, v ->
-            val frac = if (v <= 0L) 0f else (v.toFloat() / max).coerceIn(0f, 1f)
-            // Today (last slot) gets the full-contrast colour.
-            val c = if (i == values.lastIndex) text else muted
+            val frac = if (v <= 0L || max <= 0L) 0f else (v.toFloat() / max).coerceIn(0f, 1f)
+            val h = if (frac <= 0f) 2.dp else (2 + (32 * frac)).dp
+            val isToday = i == values.lastIndex
+            // Bar body: recede for past days, full contrast for today.
             Box(
-                GlanceModifier.defaultWeight().height(
-                    if (frac <= 0f) 2.dp else (2 + (32 * frac)).dp,
-                ).background(ImageProvider(R.drawable.widget_bar)),
-            ) {
-                Box(GlanceModifier.fillMaxSize().background(c))
-            }
-            if (i != values.lastIndex) Spacer(GlanceModifier.width(4.dp))
+                GlanceModifier.size(6.dp, h)
+                    .background(ImageProvider(R.drawable.widget_bar), ColorFilter.tint(if (isToday) text else muted)),
+            ) {}
+            Spacer(GlanceModifier.width(6.dp))
         }
     }
 }
@@ -236,8 +222,8 @@ class ToggleAction : ActionCallback {
 }
 
 /**
- * Keeps the widget current. Every state change pushes immediately, and while connected it re-pushes every
- * 2s - the previous 10s interval made the figures look broken.
+ * Keeps the widget current: any state, traffic or blocked change pushes at once, and there is a 2s tick
+ * so live figures keep moving. The previous 10s interval is what made the widget look stale.
  */
 object WidgetSync {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

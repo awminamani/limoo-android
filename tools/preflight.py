@@ -250,5 +250,32 @@ for kts in glob.glob("/tmp/work/**/*.gradle.kts", recursive=True):
         if not imported:
             fail.append(f"{kts}:{line_no} fully-qualified java.{m.group(1)}.{cls.split('.')[0]} in a .kts script - import it")
 
+# ---- 15. Glance symbols: verify against the known-good widget's import set ----
+# Glance's API is easy to guess wrong (ColorFilter lives in androidx.glance, defaultWeight in
+# .layout, provideGlance is a suspend override). Diff our imports against a known-compiling baseline.
+W = "/tmp/work/app/src/main/java/app/limoo/widget/LimooWidget.kt"
+if os.path.exists(W):
+    have = set(re.findall(r"^import (androidx\.glance[\w.]*)", open(W).read(), re.M))
+    # Required by anything the widget composes: Image+ColorFilter, modifier size/padding/fill, Row/Column,
+    # text, colour providers, and the appwidget entry points.
+    required = {
+        "androidx.glance.GlanceId", "androidx.glance.GlanceModifier",
+        "androidx.glance.Image", "androidx.glance.ImageProvider", "androidx.glance.background",
+        "androidx.glance.appwidget.GlanceAppWidget", "androidx.glance.appwidget.GlanceAppWidgetReceiver",
+        "androidx.glance.appwidget.action.ActionCallback", "androidx.glance.appwidget.action.actionRunCallback",
+        "androidx.glance.appwidget.provideContent", "androidx.glance.appwidget.updateAll",
+        "androidx.glance.action.ActionParameters", "androidx.glance.action.clickable",
+        "androidx.glance.layout.Alignment", "androidx.glance.layout.Box", "androidx.glance.layout.Column",
+        "androidx.glance.layout.Row", "androidx.glance.layout.Spacer", "androidx.glance.layout.fillMaxSize",
+        "androidx.glance.layout.padding", "androidx.glance.layout.size", "androidx.glance.layout.width",
+        "androidx.glance.text.FontFamily", "androidx.glance.text.Text", "androidx.glance.text.TextStyle",
+        "androidx.glance.unit.ColorProvider",
+    }
+    for miss in sorted(required - have):
+        fail.append(f"{W}: missing Glance import {miss}")
+    # provideGlance must be a suspend override of GlanceAppWidget
+    if "override suspend fun provideGlance" not in open(W).read():
+        fail.append(f"{W}: provideGlance must be `override suspend fun provideGlance(context, id)`")
+
 print("\n".join(fail) if fail else "preflight: all checks passed")
 sys.exit(1 if fail else 0)
