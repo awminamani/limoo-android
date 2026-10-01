@@ -238,5 +238,17 @@ for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
             line_no = body[:m.start()].count("\n") + 1
             fail.append(f"{f}:{line_no} DotReadout given a fixed height ({pos[2]}) - the height clips the glyph")
 
+# ---- 14. fully-qualified java.* in .kts scripts ----
+# Inside a Gradle Kotlin DSL script `java` resolves to Gradle's `java` extension, not the java package, so
+# `java.util.Properties()` there fails to resolve. Import it instead. (Cost a CI round-trip once.)
+for kts in glob.glob("/tmp/work/**/*.gradle.kts", recursive=True):
+    src = open(kts).read()
+    for m in re.finditer(r"(?<![A-Za-z0-9_.])java\.(util|net|nio|io)\.", src):
+        line_no = src[:m.start()].count("\n") + 1
+        cls = src[m.end():].split("(")[0].strip(".")
+        imported = f"import java.{m.group(1)}.{cls.split('.')[0]}" in src
+        if not imported:
+            fail.append(f"{kts}:{line_no} fully-qualified java.{m.group(1)}.{cls.split('.')[0]} in a .kts script - import it")
+
 print("\n".join(fail) if fail else "preflight: all checks passed")
 sys.exit(1 if fail else 0)
