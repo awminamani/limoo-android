@@ -103,7 +103,19 @@ for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
             line_no = text[:m.start()].count("\n") + 1
             fail.append(f"{f}:{line_no} JVM clash: property '{prop}' already generates {setter}(...)")
 
-# ---- 6. notification layouts may only use platform widgets ----
+# ---- 6. the app must not post RemoteViews notifications ----
+# SystemUI inflates notifications in its own process. Our custom layout was rejected twice with
+# RemoteServiceException$BadForegroundServiceNotificationException, which crashed the app on connect.
+# The notification is now built only from platform templates; keep it that way.
+for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
+    src = strip_comments(open(f).read())
+    for m in re.finditer(r"\bRemoteViews\b", src):
+        line_no = src[:m.start()].count("\n") + 1
+        fail.append(f"{f}:{line_no} RemoteViews in the app - SystemUI rejects custom notification layouts")
+for x in glob.glob("/tmp/work/app/src/main/res/layout/*.xml"):
+    fail.append(f"{x} notification layout exists - post a platform-template notification instead")
+
+# ---- 6b. notification layouts may only use platform widgets ----
 # RemoteViews is inflated by SystemUI in another process: an app-defined View subclass in a notification
 # layout compiles fine and then crashes the app at inflation time (i.e. on connect, inside
 # startForeground). Only these tags are safe.

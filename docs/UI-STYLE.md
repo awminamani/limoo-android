@@ -113,11 +113,16 @@ Add new UI as a component here rather than inline in a screen, so the vocabulary
 - Long lists use `NCard` rows with swipe actions; destructive ones always offer undo via `Ui.say`.
 
 ## 8. Gotchas that have bitten us
-- **A notification layout may only contain platform widgets.** RemoteViews is inflated by SystemUI in a
-  separate process, so an app-defined View subclass compiles fine and then *crashes the app on connect*,
-  because the notification is built inside `startForeground()`. The dot strip in `notif.xml` is therefore a
-  row of plain `<View>` children tinted with `setInt(id, "setBackgroundColor", ...)` - see
-  `LimooVpnService.paintDotStrip`. `tools/preflight.py` check 6 enforces this.
+- **Never post a RemoteViews (custom-layout) notification.** SystemUI inflates notifications in its own
+  process and rejected our layout twice - first with an app-defined View class, then with a layout of plain
+  platform widgets - both times as
+  `RemoteServiceException$BadForegroundServiceNotificationException: Bad notification(tag=null, id=1)`,
+  which kills the app because the notification is built inside `startForeground()`.
+  The notification is now built purely from platform templates: identity comes from the dot-grid status-bar
+  icon, the flat black background and the server name as the title. `tools/preflight.py` check 6 forbids
+  `RemoteViews` and any `res/layout` notification layout from coming back.
+- `startForeground()` must never throw - it is on the connect path. `LimooVpnService.minimalForeground()`
+  is the last-resort fallback.
 
 - **Never call a Compose extension function fully qualified** (`androidx.compose.foundation.lazy.items(...)`
   does not resolve). Import it. This broke a build once already.

@@ -8,7 +8,6 @@ import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.graphics.drawable.Icon
-import android.widget.RemoteViews
 import androidx.core.app.ServiceCompat
 import app.limoo.LimooApp
 import app.limoo.R
@@ -20,11 +19,6 @@ class LimooVpnService : VpnService() {
     enum class State { Idle, Connecting, Connected, Error }
 
     companion object {
-        /** Must match the number of <View> children in res/layout/notif.xml. */
-        const val STRIP_DOTS = 24
-        const val ACCENT = 0xFFE5484D.toInt()
-        const val TRACK = 0xFF2A2A2A.toInt()
-
         const val ACTION_START = "app.limoo.START"; const val ACTION_STOP = "app.limoo.STOP"
         val state = MutableStateFlow(State.Idle); val error = MutableStateFlow<String?>(null)
         val connectedAt = MutableStateFlow(0L)      // epoch ms, 0 when not connected
@@ -50,41 +44,36 @@ class LimooVpnService : VpnService() {
      * the dot-matrix font, so the counters use monospace here - the identity comes from the custom view,
      * the flat black background and the hairline separator rather than from a stock notification.
      */
-    /** Minimal notification with no custom views - the safe path if RemoteViews inflation ever fails. */
-    private fun plainNotification(text: String, sub: String? = null): Notification =
-        Notification.Builder(this, "limoo")
-            .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle(if (text.isBlank()) "Limoo" else "Limoo - $text")
-            .setContentText(sub ?: text)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .build()
-
+    /**
+     * The foreground notification.
+     *
+     * Deliberately built from the platform's own templates - NO RemoteViews. Two earlier attempts used a
+     * custom layout and both crashed the app on connect with
+     * `RemoteServiceException$BadForegroundServiceNotificationException: Bad notification(tag=null, id=1)`:
+     * SystemUI inflates the notification in its own process and rejected our layout both times. The identity
+     * now comes from the dot-grid small icon, flat black background and the server name as the title, and
+     * the live counters ride in the standard content text, which cannot fail to inflate.
+     */
     private fun notification(text: String, sub: String? = null): Notification {
-        val stop = android.app.PendingIntent.getService(this, 0, Intent(this, LimooVpnService::class.java).setAction(ACTION_STOP), android.app.PendingIntent.FLAG_IMMUTABLE)
-        val open = android.app.PendingIntent.getActivity(this, 1, Intent(this, app.limoo.ui.MainActivity::class.java), android.app.PendingIntent.FLAG_IMMUTABLE)
-
-        // Notifications render through RemoteViews, not a plain View: only TextViews/ImageViews and
-        // simple custom views can be inflated into one, so the dot strip is driven by a RemoteViews
-        // method call rather than by mutating an object here.
-        val views = RemoteViews(packageName, R.layout.notif).apply {
-            setTextViewText(R.id.nTitle, if (text.isBlank()) "LIMOO" else text)
-            setTextViewText(R.id.nRate, sub?.substringBefore("  ") ?: "")
-            setTextViewText(R.id.nTotal, sub?.substringAfter("  ", "") ?: "")
-        }
+        val stop = android.app.PendingIntent.getService(
+            this, 0, Intent(this, LimooVpnService::class.java).setAction(ACTION_STOP),
+            android.app.PendingIntent.FLAG_IMMUTABLE,
+        )
+        val open = android.app.PendingIntent.getActivity(
+            this, 1, Intent(this, app.limoo.ui.MainActivity::class.java), android.app.PendingIntent.FLAG_IMMUTABLE,
+        )
+        val title = if (text.isBlank()) "Limoo" else text
+        val body = sub?.takeIf { it.isNotBlank() } ?: "Connected"
 
         return Notification.Builder(this, "limoo")
-            .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle(if (text.isBlank()) "Limoo" else "Limoo - $text")
-            .setContentText(sub ?: "")
-            // Notification.Builder has no setContentView: a custom body is installed via
-            // setCustomContentView (collapsed) and setCustomBigContentView (expanded).
-            .setCustomContentView(views)
-            .setCustomBigContentView(views)
+            .setSmallIcon(R.drawable.ic_stat)          // dot-grid "L", renders in the status bar
+            .setContentTitle(title)                     // current server
+            .setContentText(body)                       // live speed + session total
             .setColor(0xFF000000.toInt())
             .setColorized(false)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setShowWhen(false)
             .setContentIntent(open)
             .addAction(Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_stat), "Disconnect", stop).build())
             .build()
@@ -96,12 +85,18 @@ class LimooVpnService : VpnService() {
         state.value = State.Connecting; error.value = null
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel("limoo", "Limoo VPN", NotificationManager.IMPORTANCE_LOW))
-        // The custom notification is cosmetic, but startForeground() is mandatory and throwing here kills
-        // the app on connect. Fall back to a plain notification so a styling problem can never be fatal,
-        // and remember that we fell back so later updates stay on the safe path.
-        val fg = try { notification("Connecting...") } catch (t: Throwable) { plainNotification("Connecting...") }
-        runCatching { ServiceCompat.startForeground(this, 1, fg, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE) }
-            .onFailure { runCatching { startForeground(1, plainNotification("Connecting...")) } }
+        // startForeground() must not throw. A BadForegroundServiceNotificationException from SystemUI
+        // previously killed the app outright on connect, so every layer here is fallible-by-design:
+        // build the notification defensively, and if the platform still refuses it, degrade to the
+        // absolute minimum rather than taking the process down.
+        val fg = runCatching { notification("Connecting...") }.getOrNull()
+        if (fg != null) {
+            runCatching {
+                ServiceCompat.startForeground(this, 1, fg, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            }.onFailure { minimalForeground() }
+        } else minimalForeground()
+
+
         job = scope.launch {
             try {
                 val st = store.settings.value
@@ -155,28 +150,28 @@ class LimooVpnService : VpnService() {
                 // Repost at most every 3s, but immediately on the first sample so the shade is never empty.
                 if (lastPost == 0L || elapsed >= 3000L) {
                     lastPost = t; lastDown = now.down
-                    val notif = notification(serverName.value, "${fmtRate(bytesPerSec)}  ${fmtBytes(now.up + now.down)}")
-                    paintDotStrip(notif, (bytesPerSec.toFloat() / (1024f * 1024f)).coerceIn(0f, 1f))
-                    runCatching { nm.notify(1, notif) }
+                    runCatching {
+                        nm.notify(1, notification(serverName.value, "${fmtRate(bytesPerSec)}  ${fmtBytes(now.up + now.down)}"))
+                    }
                 }
             }
         }
     }
 
     /**
-     * Lights the dot strip. Each dot is a plain <View> in the layout tinted with setInt, because a
-     * custom View class cannot be inflated by SystemUI (see notif.xml).
+     * Absolute last-resort foreground notification: only the fields the platform guarantees to accept.
+     * Used when the styled notification is rejected, so connecting degrades instead of crashing.
      */
-    private fun paintDotStrip(notif: Notification, fraction: Float) {
-        val v = notif.contentView ?: return
-        val lit = (fraction * STRIP_DOTS).toInt()
-        for (i in 0 until STRIP_DOTS) {
-            v.setInt(dotId(i), "setBackgroundColor", if (i < lit) ACCENT else TRACK)
-        }
+    private fun minimalForeground() {
+        val n = runCatching {
+            Notification.Builder(this, "limoo")
+                .setContentTitle("Limoo")
+                .setSmallIcon(android.R.drawable.ic_lock_lock)
+                .build()
+        }.getOrNull() ?: return
+        runCatching { ServiceCompat.startForeground(this, 1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE) }
+            .onFailure { runCatching { startForeground(1, n) } }
     }
-
-    /** d0..dN resource ids, generated to match the row of dots in notif.xml. */
-    private fun dotId(i: Int): Int = resources.getIdentifier("d$i", "id", packageName)
 
     private fun fmtRate(bytesPerTick: Long): String {
         val kb = bytesPerTick / 1024
