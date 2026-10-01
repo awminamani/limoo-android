@@ -2,6 +2,7 @@ package app.limoo.ui
 
 import android.app.Activity
 import android.os.Build
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -65,7 +66,10 @@ fun NTheme(st: AppSettings, content: @Composable () -> Unit) {
         // "mono" means the interface carries no signal colour at all - inversion does the work.
         else -> base.text
     }
-    val n = base.copy(accent = accent)
+    // Cross-fade the accent instead of snapping. An abrupt switch made the wallpaper tint jump, which
+    // read as a glitch; a short ease keeps it calm and is barely perceptible as an animation.
+    val accentAnim by animateColorAsState(accent, tween(320), label = "accent")
+    val n = base.copy(accent = accentAnim)
     val view = LocalView.current
     if (!view.isInEditMode) SideEffect {
         val w = (view.context as Activity).window

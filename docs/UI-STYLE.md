@@ -187,9 +187,14 @@ renders `BusyRow` and disables the confirm button.
 - **Right = Share, Left = Delete.** Share opens the sheet, which offers the standard `vless://` link, a
   `limoo://` link, or a `.limoo` file. Favourite is no longer a swipe action; it stays in the row menu and
   the multi-select bar.
-- **The feel is the point.** The row tracks the finger 1:1 to 60% of its width, then the drag is damped
-  hard (`RESISTANCE`), so it feels heavy past the threshold. Crossing it arms the action and fires a
-  haptic, so release is confirmed by feel. Early release springs back over 180ms.
+- **The row tracks the finger exactly, 1:1, at one constant speed** for its whole travel. An earlier
+  version damped the drag past a threshold to feel "heavy"; it read as laggy instead, because the row
+  fighting the touch desyncs it from the finger. Do not add damping, rubber-banding or per-zone speeds.
+- **Commit is communicated by position, not resistance.** The action plate behind the row grows and
+  brightens with the drag progress, so the consequence is visible while the finger is still down. The
+  arm point (45% of width) fires one haptic so it is confirmed by feel.
+- **Animation only on release.** While a finger is down the row is driven straight from the drag value;
+  the spring runs only when settling. Animating during the drag is what produced the jank.
 - **Never destructive on the gesture itself.** The row stays in place and the caller acts; delete still
   goes through `Ui.say(..., "UNDO")`. A mis-swipe must always be recoverable.
 - Delete uses the signal colour - the one place a swipe background takes the accent.
@@ -206,6 +211,8 @@ renders `BusyRow` and disables the confirm button.
   the accent. Flattening or compositing the mask would tint the whole frame. Preflight 14b enforces this.
 - **The accent comes from `LocalN`**, derived from the stored `AppSettings.accent`. Never add a second
   accent source or a dedicated preference - that is what makes the wallpaper retint live.
+- **The accent cross-fades** over 320ms (`animateColorAsState`) rather than snapping, so both the UI and
+  the wallpaper tint ease to the new colour. Keep it short: long fades read as lag.
 - Applied on **every tab**, scrim raised where dense rows sit over artwork: 0.10 Home, 0.45 Servers and
   Settings. Cards carry their own surface fill, so text stays legible. Both layers use `ContentScale.Crop`;
   never `FillBounds`, which would stretch the artwork.

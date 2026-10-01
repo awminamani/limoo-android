@@ -1,14 +1,12 @@
 package app.limoo.ui
 
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,29 +27,28 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.abs
 
 /**
- * A row with Samsung One UI-style horizontal swipe actions.
+ * A server row with Samsung One UI-style horizontal swipe actions.
  *
- * The stock `SwipeToDismissBox` flicks the row away the moment a threshold is crossed, which is too easy
- * to trigger by accident and leaves no confirmation. This behaves the way One UI 8.5 notifications do:
+ * The gesture is deliberately simple, because the previous attempt at "resistance past a threshold" felt
+ * laggy rather than heavy: damping the drag while the finger is still moving makes the row fight the touch,
+ * and the mismatch between finger and row position is what reads as jank. So the row tracks the finger
+ * **exactly, 1:1, at a single constant speed** for its whole travel - no zones, no rubber-banding, no
+ * animation chasing the finger. It stops at the edge of its travel and springs home when released.
  *
- *  - The row follows the finger 1:1 up to a threshold (60% of its width).
- *  - Past that point the drag **resists** - movement is damped hard, so the row feels heavy and the user
- *    has to commit deliberately rather than by accident.
- *  - Crossing the threshold arms the action and fires haptic feedback, so release is confirmed by feel.
- *  - Letting go early springs back; letting go armed runs the action and the row settles with a short snap.
+ * The "commit" affordance comes from position instead of resistance: the action plate behind the row
+ * fills and brightens as the drag approaches the commit point, so the user sees the consequence before
+ * letting go. That is legible, cheap and cannot lag.
  *
- * Right swipe reveals Share, which offers the standard link (vless://, vmess://, ...) or a .limoo file.
- * Left swipe reveals Delete, which still routes through the existing undo flow.
- *
- * The gesture never removes anything by itself - the caller decides - so a mis-swipe is recoverable.
+ * Right = Share (standard vless:// link, limoo:// link, or .limoo file). Left = Delete, still undoable.
+ * The gesture itself never removes anything: the row stays in place and the caller acts.
  */
 private enum class SwipeDir { LEFT, RIGHT, NONE }
 
-/** Fraction of the row width the drag must reach before the action arms. */
-private const val ARM_THRESHOLD = 0.60f
+/** Fraction of row width the drag must pass before the action is armed. */
+private const val ARM_THRESHOLD = 0.45f
 
-/** Movement multiplier past the threshold: this is what produces the "heavy" feel. */
-private const val RESISTANCE = 0.15f
+/** How far the row may travel, as a fraction of its width. */
+private const val TRAVEL = 0.45f
 
 private fun sign(v: Float): Float = if (v < 0f) -1f else 1f
 
@@ -71,14 +68,18 @@ fun SwipeActionRow(
     var dir by remember { mutableStateOf(SwipeDir.NONE) }
     var armed by remember { mutableStateOf(false) }
 
-    val armPx = (rowWidth * ARM_THRESHOLD).takeIf { rowWidth > 0 } ?: 160.dp.value * 0.6f
+    val travelPx = rowWidth * TRAVEL
+    val armPx = rowWidth * ARM_THRESHOLD
 
-    // The row snaps back into place after release instead of stopping dead.
+    // Only ever animates on RELEASE. While the finger is down the row is driven directly by the drag, so
+    // there is no animation lagging behind the touch - that is what caused the jank.
     val shown by animateFloatAsState(
         targetValue = offset,
-        animationSpec = tween(durationMillis = 180),
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
         label = "swipeOffset",
     )
+
+    val progress = if (travelPx > 0f) (abs(shown) / travelPx).coerceIn(0f, 1f) else 0f
 
     fun settle() {
         offset = 0f
@@ -87,14 +88,16 @@ fun SwipeActionRow(
     }
 
     Box(modifier.fillMaxWidth().onSizeChanged { rowWidth = it.width }) {
-        // Action layer underneath, revealed as the row slides away. Delete uses the signal colour, which
-        // is exactly the destructive case the accent is reserved for.
-        Box(Modifier.matchParentSize()) {
-            when (dir) {
-                SwipeDir.RIGHT -> ActionPlate("Share", Modifier.align(Alignment.CenterStart), n.surface2, n.text)
-                SwipeDir.LEFT -> ActionPlate("Delete", Modifier.align(Alignment.CenterEnd), n.accent.copy(alpha = 0.18f), n.accent)
-                SwipeDir.NONE -> Unit
-            }
+        // Action plate behind the row. Its opacity tracks the drag so the consequence is visible while the
+        // finger is still down, rather than appearing only after release.
+        when (dir) {
+            SwipeDir.RIGHT -> ActionPlate(
+                "Share", Modifier.align(Alignment.CenterStart), n.surface2, n.text, progress,
+            )
+            SwipeDir.LEFT -> ActionPlate(
+                "Delete", Modifier.align(Alignment.CenterEnd), n.accent, n.onText, progress,
+            )
+            SwipeDir.NONE -> Unit
         }
 
         Box(
@@ -102,16 +105,14 @@ fun SwipeActionRow(
                 .fillMaxWidth()
                 .graphicsLayer {
                     translationX = shown
-                    // A hair of scale-down so the row reads as lifting off the layer beneath it.
-                    val frac = (abs(shown) / rowWidth.coerceAtLeast(1)).coerceIn(0f, 1f)
-                    scaleX = 1f - frac * 0.03f
+                    // A whisper of scale so the row lifts off the plate beneath it.
+                    scaleX = 1f - progress * 0.02f
                 }
                 .then(
                     if (!enabled || rowWidth == 0) Modifier
                     else Modifier.pointerInput(rowWidth) {
-                        var last = 0f
                         detectHorizontalDragGestures(
-                            onDragStart = { last = 0f },
+                            onDragStart = { offset = 0f; armed = false },
                             onDragEnd = {
                                 if (armed) {
                                     tick()
@@ -125,23 +126,17 @@ fun SwipeActionRow(
                             },
                             onDragCancel = { settle() },
                             onHorizontalDrag = { _, delta ->
-                                val raw = last + delta
-                                last = raw
-                                val w = rowWidth.toFloat()
-                                val proposed = raw.coerceIn(-w, w)
-                                // 1:1 up to the threshold, then heavily damped.
-                                val next =
-                                    if (abs(proposed) <= armPx) proposed
-                                    else sign(proposed) * (armPx + (abs(proposed) - armPx) * RESISTANCE)
-                                if (!armed && abs(next) >= armPx) {
-                                    armed = true
-                                    tick()
-                                }
+                                // 1:1 with the finger, clamped to the travel limit. No damping.
+                                val next = (offset + delta).coerceIn(-travelPx, travelPx)
                                 offset = next
                                 dir = when {
-                                    abs(next) < 6f -> SwipeDir.NONE
+                                    abs(next) < 4f -> SwipeDir.NONE
                                     next > 0f -> SwipeDir.RIGHT
                                     else -> SwipeDir.LEFT
+                                }
+                                if (dir != SwipeDir.NONE && !armed && abs(next) >= armPx) {
+                                    armed = true
+                                    tick()   // confirm the arm point by feel
                                 }
                             },
                         )
@@ -151,18 +146,20 @@ fun SwipeActionRow(
     }
 }
 
-/** The revealed action plate behind the row. */
+/** The revealed action plate. Fades and grows with the drag progress. */
 @Composable
 private fun ActionPlate(
     label: String,
     modifier: Modifier = Modifier,
     fill: androidx.compose.ui.graphics.Color,
     fg: androidx.compose.ui.graphics.Color,
+    progress: Float,
 ) {
     Box(
         modifier
             .fillMaxHeight()
-            .width(112.dp)
+            .width((72 + 48 * progress).dp)
+            .graphicsLayer { alpha = 0.35f + progress * 0.65f }
             .background(fill, RoundedCornerShape(Radius.card)),
         contentAlignment = Alignment.Center,
     ) { Text(label, style = NType.micro, color = fg, textAlign = TextAlign.Center) }
