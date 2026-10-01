@@ -130,7 +130,7 @@ class MainActivity : ComponentActivity() {
         preview = null; clipOffer = null; dismissedClips += p.raw.hashCode()
         val work = p.subUrls.isNotEmpty()
         setBusy(work)
-        val added = store.addServers(chosen.map { if (group.isNotEmpty() && it.group.isEmpty()) it.copy(group = group) else it } })
+        val added = store.addServers(chosen.map { if (group.isNotEmpty() && it.group.isEmpty()) it.copy(group = group) else it })
         if (restore) p.settings?.let { s -> store.update { s } }
         if (work) lifecycleScope.launch { delay(120); setBusy(false) }   // subscription fetches continue in background
         p.subUrls.forEach { u -> addSub(u, if (p.subUrls.size == 1) subName else "") }
