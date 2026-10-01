@@ -32,6 +32,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.toDp
 import kotlin.math.abs
 
 /**
@@ -107,7 +108,8 @@ fun SwipeActionRow(
                 Box(
                     Modifier
                         .fillMaxHeight()
-                        .width(if (open) travelPx else (travelPx * 0.9f).coerceAtLeast(1f))
+                        // travelPx is raw pixels from onSizeChanged; Modifier.width needs Dp.
+                        .width((if (open) travelPx else travelPx * 0.9f).coerceAtLeast(1f).toDp())
                         .clip(RoundedCornerShape(Radius.card))
                         .background(if (isShare) n.surface2 else n.accent)
                         // Only interactive once fully open, so a drag can never fire the action.

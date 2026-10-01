@@ -372,6 +372,36 @@ for _f in _g.glob(os.path.join(ROOT, "**/*.kt"), recursive=True):
             line_no = _b[:_m.start()].count("\n") + 1
             fail.append(f"{_f}:{line_no} `.clickable {{` inside .then(...) needs parentheses - write .clickable(...) {{ }}")
 
+# ---- 14f. no raw pixel values fed to Dp-only modifier parameters ----
+# onSizeChanged gives Int pixels, but Modifier.width/height/size/offset take Dp. Passing the pixel value
+# straight through fails with "None of the following candidates is applicable", and the caret points at the
+# wrong line, which is easy to misread as a different function being wrong.
+for _f in _g.glob(os.path.join(ROOT, "**/*.kt"), recursive=True):
+    _b = strip_comments(open(_f).read())
+    # names that conventionally hold pixel measurements in this codebase
+    for _m in re.finditer(r"(?:val|var)\s+(\w*(?:[Pp]x|[Ww]idthPx|[Hh]eightPx)\w*)\s*(:[^=\n]+)?=", _b):
+        _var = _m.group(1)
+        for _w in re.finditer(r"\.(width|height|size|offset)\s*\(", _b[_m.end():]):
+            # balance the parens to take exactly this call's argument list (they nest arbitrarily deep)
+            _d, _args, _i = 1, [], _w.end()
+            while _i < len(_b) - _m.end() and _d > 0:
+                _c = _b[_m.end() + _i]
+                if _c == "(":
+                    _d += 1
+                elif _c == ")":
+                    _d -= 1
+                    if _d == 0:
+                        break
+                _args.append(_c)
+                _i += 1
+            _expr = "".join(_args)
+            if _var in _expr and ".toDp()" not in _expr and "px" not in _expr:
+                line_no = _b[:_m.end() + _w.start()].count("\n") + 1
+                fail.append(
+                    f"{_f}:{line_no} '{_var}' looks like pixels but is passed to ."
+                    f"{_w.group(1)}(...) which needs Dp - add .toDp()"
+                )
+
 # ---- 15. Glance symbols: verify against the known-good widget's import set ----
 # Glance's API is easy to guess wrong (ColorFilter lives in androidx.glance, defaultWeight in
 # .layout, provideGlance is a suspend override). Diff our imports against a known-compiling baseline.
