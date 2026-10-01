@@ -39,7 +39,7 @@ import tempfile, subprocess as sp
 tmp = tempfile.mkdtemp()
 sp.run(["unzip", "-q", "-o", SDK, "-d", tmp], check=True)
 for cls, methods in REQUIRED.items():
-    path = cls.replace(".", "/").replace("\$", "$")
+    path = cls.replace(".", "/")
     out = sp.run(["javap", "-cp", tmp, cls], capture_output=True, text=True).stdout
     for m in methods:
         if f"{m}(" not in out:
@@ -113,7 +113,7 @@ for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
     for m in re.finditer(r"\bRemoteViews\b", src):
         line_no = src[:m.start()].count("\n") + 1
         fail.append(f"{f}:{line_no} RemoteViews in the app - SystemUI rejects custom notification layouts")
-for x in glob.glob("/tmp/work/app/src/main/res/layout/*.xml"):
+for x in glob.glob(os.path.join(REPO, "app/src/main/res/layout/*.xml")):
     fail.append(f"{x} notification layout exists - post a platform-template notification instead")
 
 # ---- 6b. notification layouts may only use platform widgets ----
@@ -126,7 +126,7 @@ REMOTE_VIEWS_OK = {
     "AnalogClock", "Chronometer", "ImageClock", "TextClock", "ViewFlipper", "ViewSwitcher",
     "ListView", "GridView", "StackView", "AdapterViewFlipper", "Space", "RatingBar",
 }
-for xml in glob.glob("/tmp/work/app/src/main/res/layout/*.xml"):
+for xml in glob.glob(os.path.join(REPO, "app/src/main/res/layout/*.xml")):
     if "notif" not in xml and "tile" not in xml: continue
     for tag in re.findall(r"<([a-zA-Z][A-Za-z0-9_.]*)", open(xml).read()):
         if tag.startswith("?"): continue
@@ -241,7 +241,7 @@ for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
 # ---- 14. fully-qualified java.* in .kts scripts ----
 # Inside a Gradle Kotlin DSL script `java` resolves to Gradle's `java` extension, not the java package, so
 # `java.util.Properties()` there fails to resolve. Import it instead. (Cost a CI round-trip once.)
-for kts in glob.glob("/tmp/work/**/*.gradle.kts", recursive=True):
+for kts in glob.glob(os.path.join(REPO, "**/*.gradle.kts"), recursive=True):
     src = open(kts).read()
     for m in re.finditer(r"(?<![A-Za-z0-9_.])java\.(util|net|nio|io)\.", src):
         line_no = src[:m.start()].count("\n") + 1
@@ -254,7 +254,7 @@ for kts in glob.glob("/tmp/work/**/*.gradle.kts", recursive=True):
 # The mask's alpha channel IS the accent-selection mechanism. A flattened or palette-quantised mask would
 # silently tint the whole frame instead of only the intended details.
 import glob as _g
-_wp = "/tmp/work/app/src/main/res/drawable-nodpi"
+_wp = os.path.join(REPO, "app/src/main/res/drawable-nodpi")
 for _n in ("limoo_wallpaper_base.png", "limoo_accent_mask.png"):
     if not os.path.exists(f"{_wp}/{_n}"):
         fail.append(f"missing wallpaper asset {_n} in res/drawable-nodpi")
@@ -270,7 +270,7 @@ if os.path.exists(f"{_wp}/limoo_accent_mask.png"):
 # ---- 15. Glance symbols: verify against the known-good widget's import set ----
 # Glance's API is easy to guess wrong (ColorFilter lives in androidx.glance, defaultWeight in
 # .layout, provideGlance is a suspend override). Diff our imports against a known-compiling baseline.
-W = "/tmp/work/app/src/main/java/app/limoo/widget/LimooWidget.kt"
+W = os.path.join(ROOT, "widget/LimooWidget.kt")
 if os.path.exists(W):
     have = set(re.findall(r"^import (androidx\.glance[\w.]*)", open(W).read(), re.M))
     # Required by anything the widget composes: Image+ColorFilter, modifier size/padding/fill, Row/Column,
@@ -297,11 +297,8 @@ if os.path.exists(W):
     # Every androidx.glance.* import must exist as a class in the real glance AAR. Guessing the package
     # is the single most common Glance mistake (defaultWeight is a RowScope member, ColorFilter is in
     # androidx.glance not .color), and it is invisible without a compiler.
-    aar = "/tmp/gx/classes.jar"
-    # glance and glance-appwidget are separate artifacts; the widget needs classes from both.
-    for extra in ("/tmp/gawx/classes.jar",):
-        if os.path.exists(extra):
-            aar = extra if aar == extra else aar
+    # glance and glance-appwidget are separate artifacts and the widget needs classes from both. They
+    # live outside the repo, so this check is skipped when they are not present (e.g. on CI).
     jars = [j for j in ("/tmp/gx/classes.jar", "/tmp/gawx/classes.jar") if os.path.exists(j)]
     if jars:
         import zipfile as _z
