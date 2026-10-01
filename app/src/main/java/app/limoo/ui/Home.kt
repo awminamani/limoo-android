@@ -8,8 +8,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -277,8 +279,8 @@ fun ServerPickerSheet(store: Store, onDismiss: () -> Unit, onPick: (Server) -> U
         NLabel("SWITCH SERVER")
         Spacer(Modifier.height(10.dp)); NSearch(q, { q = it }); Spacer(Modifier.height(8.dp))
         androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 420.dp)) {
-            androidx.compose.foundation.lazy.items(list, key = { it.id }) { s ->
-                Row(Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(18.dp)).clickable { onPick(s) }.padding(vertical = 12.dp, horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            items(list, key = { it.id }) { s ->
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable { onPick(s) }.padding(vertical = 12.dp, horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     NRadio(s.id == (selId ?: servers.firstOrNull()?.id)); Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
                         Text((if (s.fav) "* " else "") + s.name, style = NType.body, color = n.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
