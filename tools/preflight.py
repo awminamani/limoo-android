@@ -86,5 +86,22 @@ for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
                 if len(args) > mx:
                     fail.append(f"{f}:{i} {name} called with {len(args)} positional args (max {mx})")
 
+
+# ---- 5. JVM signature clashes: a Kotlin property and an explicit accessor with the same name ----
+def strip_comments(s):
+    s = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), s, flags=re.S)
+    s = re.sub(r"//[^\n]*", "", s)
+    return s
+
+for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
+    raw = open(f).read()
+    text = strip_comments(raw)          # a doc comment naming setX() is not a declaration
+    props = set(re.findall(r"\bvar\s+(\w+)\s*:", text)) | set(re.findall(r"\bval\s+(\w+)\s*:", text))
+    for prop in props:
+        setter = "set" + prop[0].upper() + prop[1:]
+        for m in re.finditer(r"\bfun\s+" + setter + r"\s*\(", text):
+            line_no = text[:m.start()].count("\n") + 1
+            fail.append(f"{f}:{line_no} JVM clash: property '{prop}' already generates {setter}(...)")
+
 print("\n".join(fail) if fail else "preflight: all checks passed")
 sys.exit(1 if fail else 0)

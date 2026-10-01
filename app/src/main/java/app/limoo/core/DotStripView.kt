@@ -15,20 +15,21 @@ import android.view.View
  */
 @Keep
 class DotStripView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : View(context, attrs) {
-    /** 0f..1f - how much of the strip is filled. */
+    /**
+     * 0f..1f - how much of the strip is filled.
+     *
+     * RemoteViews drives this from the notification, and it reaches the setter reflectively by the name
+     * `setFraction(float)` - which a Kotlin property generates on its own. Do NOT also declare a
+     * `fun setFraction(v: Float)`: the two have the same JVM signature and the build fails with a
+     * platform declaration clash. `@Keep` stops R8 from stripping that generated setter in release builds.
+     */
+    @Keep
     var fraction: Float = 0f
         set(v) { field = v.coerceIn(0f, 1f); invalidate() }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var count = 0
     private var step = 0f
-
-    /**
-     * Setter for RemoteViews. A notification cannot hold a reference to this object, so the system calls
-     * back through reflection and RemoteViews requires the method to be named set<Property>(float).
-     */
-    @Keep
-    fun setFraction(v: Float) { fraction = v }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         val r = h / 2f
