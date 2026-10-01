@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
+import android.graphics.drawable.Icon
 import android.widget.RemoteViews
 import androidx.core.app.ServiceCompat
 import app.limoo.LimooApp
@@ -60,14 +61,16 @@ class LimooVpnService : VpnService() {
             .setSmallIcon(R.drawable.ic_stat)
             .setContentTitle(if (text.isBlank()) "Limoo" else "Limoo - $text")
             .setContentText(sub ?: "")
-            .setContentView(views)
+            // Notification.Builder has no setContentView: a custom body is installed via
+            // setCustomContentView (collapsed) and setCustomBigContentView (expanded).
             .setCustomContentView(views)
+            .setCustomBigContentView(views)
             .setColor(0xFF000000.toInt())
             .setColorized(false)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(open)
-            .addAction(Notification.Action.Builder(null, "Disconnect", stop).build())
+            .addAction(Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_stat), "Disconnect", stop).build())
             .build()
     }
 
