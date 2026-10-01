@@ -25,6 +25,27 @@ class LimooVpnService : VpnService() {
 
     companion object {
         const val ACTION_START = "app.limoo.START"; const val ACTION_STOP = "app.limoo.STOP"
+        const val ACTION_RECONNECT = "app.limoo.RECONNECT"
+
+        /** Weak handle to the running service, so static callers can bounce the tunnel. */
+        @Volatile private var instance: LimooVpnService? = null
+
+        /**
+         * Stop the tunnel and bring it back up on the newly selected server. Safe from any thread and does
+         * not need an Activity: it goes through the service's own start/stop intents, and waits for the
+         * service to actually reach Idle before restarting so the old core is fully down first.
+         */
+        fun reconnect() {
+            val svc = instance ?: return
+            val ctx = svc.applicationContext
+            ctx.startService(Intent(ctx, LimooVpnService::class.java).setAction(ACTION_STOP))
+            svc.scope.launch {
+                val deadline = System.currentTimeMillis() + 4000
+                while (System.currentTimeMillis() < deadline && state.value != State.Idle) delay(120)
+                delay(250)
+                ctx.startForegroundService(Intent(ctx, LimooVpnService::class.java).setAction(ACTION_START))
+            }
+        }
         private const val NOTIF_ID = 1
         private const val CHANNEL = "limoo"
         val state = MutableStateFlow(State.Idle); val error = MutableStateFlow<String?>(null)
@@ -53,7 +74,7 @@ class LimooVpnService : VpnService() {
     private var tun: ParcelFileDescriptor? = null
     private var job: Job? = null
     private var counterJob: Job? = null
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val engine: CoreEngine by lazy { LibXrayEngine(this) }
 
     // usage bytes not yet written to UsageLog
@@ -65,7 +86,12 @@ class LimooVpnService : VpnService() {
     private val settings get() = (application as LimooApp).store.settings.value
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) { stopVpn(); return START_NOT_STICKY }
+        instance = this
+        when (intent?.action) {
+            ACTION_STOP -> { stopVpn(); return START_NOT_STICKY }
+            // Reconnect is just stop-then-start; handled by the same path as a normal start.
+            ACTION_RECONNECT -> { stopVpn(); scope.launch { delay(200); startVpn() }; return START_STICKY }
+        }
         startVpn(); return START_STICKY // null intent = system restart / Always-on VPN
     }
 
@@ -96,10 +122,10 @@ class LimooVpnService : VpnService() {
             .setOnlyAlertOnce(true)
             .setContentIntent(openApp())
             .addAction(Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_stat), getString(R.string.notif_disconnect), pending(ACTION_STOP, 0)).build())
-        if (total != null) {
-            b.setSubText(total)
-            b.setStyle(Notification.BigTextStyle().bigText("$speed\n$total"))
-        }
+        // No setSubText: Android renders subText ABOVE the title, which put the session totals on screen
+        // twice (above the server name, then again in the expanded body). Collapsed shows the speed only;
+        // the expanded body carries the session totals.
+        if (total != null) b.setStyle(Notification.BigTextStyle().bigText("$speed\n$total"))
         if (since > 0L) b.setWhen(since).setShowWhen(true).setUsesChronometer(true) else b.setShowWhen(false)
         return b.build()
     }
@@ -313,6 +339,7 @@ class LimooVpnService : VpnService() {
         runCatching { engine.stop() }; runCatching { tun?.close() }; tun = null
         if (state.value != State.Error) state.value = State.Idle
         connectedAt.value = 0; traffic.value = null; trafficExact.value = false; blocked.value = false
+        instance = null
         scope.cancel(); super.onDestroy()
     }
 }

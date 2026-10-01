@@ -598,6 +598,25 @@ fun BusyBlock(label: String, detail: String = "") {
     }
 }
 
+/**
+ * Live speed figure. Plain monospace numerals at a large-ish size with the unit set smaller and dimmer,
+ * so the number reads first. Numerals are intentionally NOT dot-matrix: the dot display is reserved for
+ * instrument graphics, and ordinary figures should match the rest of the app's typography.
+ */
+@Composable
+fun SpeedValue(value: String, modifier: Modifier = Modifier) {
+    val n = LocalN.current
+    val num = value.substringBeforeLast(' ', "")
+    val unit = value.substringAfter(' ', "")
+    Row(modifier, verticalAlignment = Alignment.Bottom) {
+        Text(num, style = NType.mono.copy(fontSize = 22.sp), color = n.text, maxLines = 1)
+        if (unit.isNotEmpty()) {
+            Spacer(Modifier.width(2.dp))
+            Text(unit, style = NType.micro, color = n.muted, modifier = Modifier.padding(bottom = 3.dp))
+        }
+    }
+}
+
 /** Compact label + value readout, used inside cards. */
 @Composable
 fun NStat(label: String, value: String, modifier: Modifier = Modifier, valueColor: Color = LocalN.current.text) {

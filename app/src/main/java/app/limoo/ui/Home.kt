@@ -192,7 +192,7 @@ fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: ()
         Spacer(Modifier.height(Space.standard))
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             when (state) {
-                State.Connected -> DotReadout(fmtUptime(now - since), 132.dp, maxPitch = 3.dp)
+                State.Connected -> Text(fmtUptime(now - since), style = NType.mono.copy(fontSize = 20.sp), color = n.text)
                 State.Connecting -> Text("Negotiating", style = NType.body, color = n.dim)
                 State.Error -> Text((error ?: "Failed").take(120), style = NType.bodySmall, color = n.accent, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 State.Idle -> Text(
@@ -258,12 +258,12 @@ fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: ()
                             Column(Modifier.weight(1f)) {
                                 NLabel("Download")
                                 Spacer(Modifier.height(Space.compact))
-                                DotReadout(fmtBytes(traffic.down) + "/S", 148.dp)
+                                SpeedValue(fmtBytes(traffic.down) + "/s")
                             }
                             Column(Modifier.weight(1f)) {
                                 NLabel("Upload")
                                 Spacer(Modifier.height(Space.compact))
-                                DotReadout(fmtBytes(traffic.up) + "/S", 148.dp)
+                                SpeedValue(fmtBytes(traffic.up) + "/s")
                             }
                         }
                         Spacer(Modifier.height(Space.standard))
@@ -338,7 +338,8 @@ fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: ()
 
     if (pickOpen) ServerPickerSheet(store, { pickOpen = false }) { s ->
         pickOpen = false
-        if (s.id != sel?.id) { store.select(s.id); if (on || state == State.Connecting) a.reconnect() }
+        // store.select() already bounces the tunnel when connected, so no explicit reconnect here.
+        if (s.id != sel?.id) store.select(s.id)
     }
 }
 

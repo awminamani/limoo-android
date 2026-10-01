@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Solid block used as the base layer of a chart bar; Glance tints it via ColorFilter. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="1dp" />
+    <solid android:color="#FFFFFFFF" />
+</shape>

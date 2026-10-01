@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Widget sizing: 4x1 is the floor (180x56dp). The tall layout with the usage chart targets 4x3, and both
+  cell sizes are declared so the launcher offers 4x3 in the resize menu rather than only as a manual drag.
+-->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:description="@string/widget_desc"
     android:initialLayout="@layout/glance_default_loading_layout"
     android:minWidth="180dp" android:minHeight="56dp"
-    android:targetCellWidth="3" android:targetCellHeight="1"
+    android:targetCellWidth="4" android:targetCellHeight="3"
+    android:minResizeWidth="180dp" android:minResizeHeight="110dp"
+    android:maxResizeWidth="504dp" android:maxResizeHeight="504dp"
     android:resizeMode="horizontal|vertical"
     android:updatePeriodMillis="0"
     android:widgetCategory="home_screen" />

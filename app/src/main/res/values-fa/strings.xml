@@ -13,4 +13,8 @@
     <string name="state_on">متصل</string>
     <string name="state_error">خطا</string>
     <string name="widget_desc">کلید اتصال با سرعت زنده</string>
+    <string name="widget_session">این نشست</string>
+    <string name="widget_week">۷ روز</string>
+    <string name="widget_today">امروز</string>
+    <string name="app_name">لیمو</string>
 </resources>

@@ -65,7 +65,21 @@ class Store(ctx: Context) {
 
     // ---------- servers ----------
     fun selected(): Server? = servers.value.firstOrNull { it.id == selectedId.value } ?: servers.value.firstOrNull()
-    fun select(id: String) { selectedId.value = id; persist() }
+    /**
+     * Selected server, and re-establish the tunnel if we were connected. Centralised here so EVERY path
+     * that changes the selection (Home picker, Servers list, tile, widget) behaves the same: stop the core
+     * and tun first, then come back up on the new server. Selecting from the Servers list used to leave the
+     * old connection running with the new server name showing.
+     */
+    fun select(id: String) {
+        if (id == selectedId.value) return
+        selectedId.value = id; persist()
+        if (app.limoo.core.LimooVpnService.state.value == app.limoo.core.LimooVpnService.State.Connected ||
+            app.limoo.core.LimooVpnService.state.value == app.limoo.core.LimooVpnService.State.Connecting
+        ) {
+            app.limoo.core.LimooVpnService.reconnect()
+        }
+    }
     fun touch(id: String) { servers.update { l -> l.map { if (it.id == id) it.copy(lastUsed = System.currentTimeMillis()) else it } }; persist() }
 
     /** Adds servers that are not already present; returns the ones actually added. */

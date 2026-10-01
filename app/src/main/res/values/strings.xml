@@ -13,4 +13,8 @@
     <string name="state_on">Connected</string>
     <string name="state_error">Error</string>
     <string name="widget_desc">Connect toggle with live speed</string>
+    <string name="widget_session">Session</string>
+    <string name="widget_week">7 days</string>
+    <string name="widget_today">Today</string>
+    <string name="app_name">Limoo</string>
 </resources>
