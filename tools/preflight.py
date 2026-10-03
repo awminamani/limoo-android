@@ -70,7 +70,7 @@ sigs = {"NSpinner": 4, "NBusy": 3, "NBusyBlock": 2, "NRule": 2, "NBrackets": 3, 
         "NReadout": 5, "NFadeDots": 3, "NDotsProgress": 4,
         # onPick/onChange are lambda parameters: a 4th POSITIONAL arg there is a type error, because the
         # call site meant a trailing lambda. The optional `sub` must be passed by name.
-        "ChoiceRow": 4, "NSlider": 6, "NRow": 3, "NButton": 7}
+        "ChoiceRow": 4, "NSlider": 6, "NRow": 4, "NButton": 7}
 for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
     for i, line in enumerate(open(f), 1):
         for name, mx in sigs.items():

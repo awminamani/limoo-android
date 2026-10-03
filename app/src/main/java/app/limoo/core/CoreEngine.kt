@@ -81,7 +81,11 @@ class LibXrayEngine(private val ctx: Context) : CoreEngine {
         try { call(m, target, *a) } catch (t: Throwable) { Crash.log("core call ${m.name}", t); null }
 
     /** True only when the controller exists and the core reports itself as running. */
-    private fun isRunning(c: Any): Boolean = (callSafe(mRunning ?: return true, c) as? Boolean) == true
+    private fun isRunning(c: Any): Boolean {
+        // No getIsRunning in this AAR: assume running rather than declaring the core dead.
+        val m = mRunning ?: return true
+        return (callSafe(m, c) as? Boolean) == true
+    }
 
     /** Caches this controller's method table. Called once per start, never in the poll loop. */
     private fun bind(c: Any) {

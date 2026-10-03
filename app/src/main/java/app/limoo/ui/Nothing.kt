@@ -443,10 +443,17 @@ fun NRadio(active: Boolean, modifier: Modifier = Modifier) {
     ) { if (active) Box(Modifier.size(8.dp).background(n.text, RoundedCornerShape(Radius.pill))) }
 }
 
-/** Row: title, optional supporting line, optional trailing content. Reads as a list line, not a card. */
+/**
+ * Row: title, optional supporting line, optional trailing content. Reads as a list line, not a card.
+ *
+ * [highlight] draws the small signal dot to the left, matching `SheetRow`. Selection is never carried by
+ * colour or a fill — inversion does that — so a dot is the only "this one is current" affordance a plain
+ * row can afford.
+ */
 @Composable
 fun NRow(
     title: String, sub: String = "", onClick: (() -> Unit)? = null,
+    highlight: Boolean = false,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val n = LocalN.current
@@ -457,6 +464,7 @@ fun NRow(
             .padding(horizontal = Space.card, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (highlight) { SignalDot(true, Modifier.size(6.dp)); Spacer(Modifier.width(Space.small)) }
         Column(Modifier.weight(1f)) {
             Text(title, style = NType.body, color = n.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (sub.isNotEmpty()) {

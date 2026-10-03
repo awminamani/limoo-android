@@ -66,6 +66,8 @@ fun SettingsScreen(store: Store, a: Actions) {
     BackHandler(page.isNotEmpty()) { page = "" }
 
     val n = LocalN.current
+    // Hoisted: a @Composable read inside a plain (Boolean) -> Unit callback does not compile.
+    val ctx = LocalContext.current
     when (page) {
         "" -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Space.card)) {
             Text("Settings", style = NType.display, color = n.text, modifier = Modifier.padding(top = Space.standard, bottom = Space.compact))
@@ -184,7 +186,7 @@ fun SettingsScreen(store: Store, a: Actions) {
                 // On by default, as asked. Both this AND each subscription's own toggle must be on.
                 ToggleRow("Auto-update", st.subAutoUpdate, "REFRESHES THE LIST ON A SCHEDULE, EVEN WHEN THE APP IS CLOSED") { v ->
                     upd { it.copy(subAutoUpdate = v) }
-                    SubUpdateScheduler.apply(LocalContext.current, store.settings.value)
+                    SubUpdateScheduler.apply(ctx, store.settings.value)
                 }; NDivider()
                 if (st.subAutoUpdate) {
                     NRow("Every", intervalLabel(st.subUpdateIntervalMin), { interval = true }) { Chevron() }
@@ -228,7 +230,7 @@ fun SettingsScreen(store: Store, a: Actions) {
                 NRow("Choose from gallery", if (st.hasCustomBackground()) "CUSTOM IMAGE SET" else "PICK A PHOTO", a.pickBackground, highlight = st.hasCustomBackground())
             }
             if (st.hasCustomBackground()) {
-                NLabel("DIM", Modifier.padding(horizontal = Space.card, top = Space.compact))
+                NLabel("DIM", Modifier.padding(start = Space.card, end = Space.card, top = Space.compact))
                 NSlider("Background dim", st.bgDim, 0f, 0.95f, valueLabel = "${(st.bgDim * 100).toInt()}%") { v ->
                     upd { it.copy(bgDim = v) }
                 }

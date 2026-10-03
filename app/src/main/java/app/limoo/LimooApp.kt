@@ -222,7 +222,7 @@ class Store(ctx: Context) {
         fetchingSubs.update { it + 1 }
         fetchingLabel.value = sub.name
         try {
-            val r = withTimeoutOrNull(SUB_FETCH_TIMEOUT_MS) { fetch(sub.url) }
+            val r = withTimeoutOrNull(SUB_FETCH_TIMEOUT_MS.toLong()) { fetch(sub.url) }
                 ?: throw Exception("Timed out after ${SUB_FETCH_TIMEOUT_MS / 1000}s")
             val name = if (sub.name == hostOf(sub.url) && r.title != null) r.title else sub.name
             val old = servers.value.associateBy { key(it) }

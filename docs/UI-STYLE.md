@@ -239,4 +239,21 @@ python3 tools/preflight.py
 
 Checks: `android.*` imports resolve against `android.jar` · SDK methods exist · positional-arg counts ·
 JVM accessor clashes · no RemoteViews · RemoteViews-safe layouts · brace balance · one companion object ·
-unterminated char literals · no removed-component references · radius cap.
+unterminated char literals · no removed-component references · no swipe · radius cap · trailing-lambda
+parameter order.
+
+## 8. Pre-flight runs without the SDK
+
+Checks 1 and 2 need the real `android.jar`. When it is absent the script prints a note and **skips** them
+instead of crashing on `zipfile.BadZipFile`, so preflight is runnable on a machine with no Android SDK (a
+phone, a laptop without the SDK). CI has the SDK, so those checks still gate the build there.
+
+## 9. Add a dependency only if nothing in the framework does the job
+
+WorkManager was briefly added for the periodic subscription refresh and immediately broke CI with HTTP 429
+from Maven Central, because its subtree (Room, SQLite, `kotlin-stdlib-jdk8`) is megabytes of artifacts that
+had to be fetched fresh. `AlarmManager.setInexactRepeating` plus a `BroadcastReceiver` does the same job with
+**zero** new artifacts and no runtime permission.
+
+Before adding a dependency here, check whether the framework already ships the primitive. A new subtree is
+also a permanent cost: bigger APK, more transitive version conflicts, and a cold cache on every clean build.
