@@ -163,12 +163,11 @@ object XrayConfigBuilder {
         put("sockopt", sockopt(st, if (st.fragment && s.security == "tls") "fragment" else null))
     }
 
-    private fun rule(out: String, domain: List<String> = emptyList(), ip: List<String> = emptyList(), skipOut: List<String> = emptyList()) = buildJsonObject {
+    private fun rule(out: String, domain: List<String> = emptyList(), ip: List<String> = emptyList()) = buildJsonObject {
         put("type", "field")
         if (domain.isNotEmpty()) put("domain", strs(domain))
         if (ip.isNotEmpty()) put("ip", strs(ip))
-        if (skipOut.isNotEmpty()) put("outboundTag", strs(skipOut))
-        else put("outboundTag", out)
+        put("outboundTag", out)
     }
 
     private val ipRe = Regex("""^(geoip:.+|\d{1,3}(\.\d{1,3}){3}(/\d+)?|[0-9a-fA-F]*:[0-9a-fA-F:]*:[0-9a-fA-F:]*(/\d+)?)$""")
@@ -190,10 +189,11 @@ object XrayConfigBuilder {
                 "bypassChina" -> { add(rule("direct", domain = listOf("geosite:cn"))); add(rule("direct", ip = listOf("geoip:cn"))) }
                 "bypassRussia" -> { add(rule("direct", domain = listOf("geosite:category-ru"))); add(rule("direct", ip = listOf("geoip:ru"))) }
             }
-            // Last: Xray's own proxy/fragment/block traffic must bypass routing, or the core's outbound would
-            // be matched by a rule above and routed back into its own inbound. This is a direct outboundTag
-            // rule (a LIST of tags), not a domain/ip match, so it uses skipOut rather than `out`.
-            add(rule("direct", skipOut = listOf("proxy", "fragment", "block")))
+            // No rule is needed to keep Xray's own proxy traffic out of the routing table. Routing only
+            // applies to traffic arriving on an inbound, so the core's own outbound never matches these
+            // rules. An earlier version tried to force that with a multi-tag rule and wrote
+            // `"outboundTag":["proxy","fragment","block"]`, but RoutingRule.OutboundTag is a single STRING:
+            // the core rejected the whole config with "failed to build routing" and nothing would connect.
         })
     }
 }
