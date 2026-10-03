@@ -3,6 +3,8 @@ package app.limoo.core
 import app.limoo.model.AppSettings
 import app.limoo.model.Server
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -41,13 +43,14 @@ class XrayConfigTest {
         assertTrue("expected some routing rules", rules.isNotEmpty())
         rules.forEach { rule ->
             val tag = rule.jsonObject["outboundTag"]
-            assertTrue(
-                "outboundTag must be a single string, not a list: ${rule.jsonObject}",
-                tag != null && tag is kotlinx.serialization.json.JsonPrimitive,
-            )
+            // require() carries a Kotlin contract, so it smart-casts; assertTrue() does not, and would
+            // leave `tag` nullable for the next line.
+            require(tag is JsonPrimitive) {
+                "outboundTag must be a single string, not a list: ${rule.jsonObject}"
+            }
             // Every tag must name an outbound that actually exists, or the core rejects the rule.
             assertTrue(
-                "unknown outboundTag $tag",
+                "unknown outboundTag ${tag.jsonPrimitive}",
                 tag.jsonPrimitive.content in setOf("proxy", "direct", "block", "fragment"),
             )
             // Only domain/ip matchers are allowed alongside type/outboundTag.
@@ -79,7 +82,7 @@ class XrayConfigTest {
     fun `tun enables endpoint independent nat and honours the setting`() {
         val on = parse(XrayConfigBuilder.build(server, AppSettings(endpointIndependentNat = true), tun = true))
         val off = parse(XrayConfigBuilder.build(server, AppSettings(endpointIndependentNat = false), tun = true))
-        fun nat(c: Map<String, kotlinx.serialization.json.JsonElement>) =
+        fun nat(c: Map<String, JsonElement>) =
             c["inbounds"]!!.jsonArray.first().jsonObject["settings"]!!.jsonObject["endpointIndependentNat"]!!.jsonPrimitive.content
         assertEquals("true", nat(on))
         assertEquals("false", nat(off))
