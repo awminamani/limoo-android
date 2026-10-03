@@ -14,7 +14,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.limoo.Store
 import app.limoo.core.GeoManager
-import app.limoo.core.SubUpdateWorker
+import app.limoo.core.SubUpdateScheduler
 import app.limoo.model.AppSettings
 import kotlinx.coroutines.launch
 
@@ -184,14 +184,14 @@ fun SettingsScreen(store: Store, a: Actions) {
                 // On by default, as asked. Both this AND each subscription's own toggle must be on.
                 ToggleRow("Auto-update", st.subAutoUpdate, "REFRESHES THE LIST ON A SCHEDULE, EVEN WHEN THE APP IS CLOSED") { v ->
                     upd { it.copy(subAutoUpdate = v) }
-                    SubUpdateWorker.sync(LocalContext.current, store.settings.value)
+                    SubUpdateScheduler.apply(LocalContext.current, store.settings.value)
                 }; NDivider()
                 if (st.subAutoUpdate) {
                     NRow("Every", intervalLabel(st.subUpdateIntervalMin), { interval = true }) { Chevron() }
                 }
             }
             Text(
-                "Android will not run background work more often than every 15 minutes, so a shorter interval is a floor rather than a guarantee. The refresh also runs when the app is opened.",
+                "Android batches background work to save battery, so the actual refresh lands near the interval rather than exactly on it. Opening the app also refreshes anything that is overdue.",
                 style = NType.bodySmall, color = n.muted, modifier = Modifier.padding(vertical = Space.compact),
             )
         }
@@ -266,7 +266,7 @@ fun SettingsScreen(store: Store, a: Actions) {
             listOf(60 to "1 HOUR", 360 to "6 HOURS", 720 to "12 HOURS", 1440 to "24 HOURS").forEach { (m, l) ->
                 SheetRow(l, highlight = st.subUpdateIntervalMin == m) {
                     upd { it.copy(subUpdateIntervalMin = m) }
-                    SubUpdateWorker.sync(ctx, store.settings.value)
+                    SubUpdateScheduler.apply(ctx, store.settings.value)
                     interval = false
                 }
             }
@@ -276,7 +276,7 @@ fun SettingsScreen(store: Store, a: Actions) {
                 val m = v.toIntOrNull()
                 if (m != null && m in 15..10080) {
                     upd { it.copy(subUpdateIntervalMin = m) }
-                    SubUpdateWorker.sync(ctx, store.settings.value)
+                    SubUpdateScheduler.apply(ctx, store.settings.value)
                 }
             }, keyboard = KeyboardType.Number)
             NLabel("BETWEEN 15 MINUTES AND 7 DAYS", Modifier.padding(top = Space.small))

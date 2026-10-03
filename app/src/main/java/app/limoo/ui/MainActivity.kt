@@ -24,7 +24,7 @@ import app.limoo.LimooApp
 import app.limoo.Store
 import app.limoo.core.GeoManager
 import app.limoo.core.LimooVpnService
-import app.limoo.core.SubUpdateWorker
+import app.limoo.core.SubUpdateScheduler
 import app.limoo.format.ImportPreview
 import app.limoo.format.Importer
 import app.limoo.format.LimooFile
@@ -89,7 +89,7 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
             notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         // First open downloads geoip/geosite; later opens refresh weekly. Subscriptions refresh on their own
-        // schedule via SubUpdateWorker - this launch-time pass only catches up a list that is already overdue.
+        // arm the alarm - this launch-time pass only catches up a list that is already overdue.
         lifecycleScope.launch {
             val st = store.settings.value
             GeoManager.ensure(applicationContext, st.geoSource, if (st.geoAutoUpdate) 7 else Long.MAX_VALUE)
@@ -172,7 +172,7 @@ class MainActivity : ComponentActivity() {
     /** Applies a settings block and re-arms the auto-update job, which depends on two of its fields. */
     private fun applySettings(s: AppSettings) {
         store.update { s }
-        SubUpdateWorker.sync(applicationContext, store.settings.value)
+        SubUpdateScheduler.apply(applicationContext, store.settings.value)
     }
 
     private fun addSub(url: String, name: String) {

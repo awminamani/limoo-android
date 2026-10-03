@@ -42,8 +42,8 @@ class LimooApp : Application() {
         }
         store = Store(this)
         app.limoo.widget.WidgetSync.start(this)
-        // Register (or re-register) the periodic subscription refresh against the stored interval.
-        app.limoo.core.SubUpdateWorker.sync(applicationContext, store.settings.value)
+        // (Re)arm the periodic subscription refresh against the stored interval.
+        app.limoo.core.SubUpdateScheduler.apply(applicationContext, store.settings.value)
     }
 }
 
