@@ -12,17 +12,26 @@ android {
         applicationId = "app.limoo"; minSdk = 26; targetSdk = 34; versionCode = 6; versionName = "0.6.0"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
-    // Release signing: keystore.properties (local, git-ignored) or LIMOO_* env vars (CI). Falls back to the
-    // debug key so a fresh clone still builds an installable APK.
+    // Release signing: keystore.properties (local, git-ignored) or LIMOO_* env vars (CI).
+    //
+    // If LIMOO_KEYSTORE is present but no "release" signingConfig can be built, that is a MISCONFIGURATION
+    // and the build must stop. Falling through to the debug key is what produced five releases that Android
+    // refused to update over each other: AGP mints a fresh debug key per runner, so every build got a
+    // different certificate. The CI job also exports these variables, and Gradle reads signingConfigs during
+    // CONFIGURATION, so if the secret arrives after the first ./gradlew call the config is silently absent.
     val ksProps = Properties().apply { rootProject.file("keystore.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) } }
     fun ks(k: String, env: String): String? = (ksProps.getProperty(k) ?: System.getenv(env))?.takeIf { it.isNotBlank() }
+    val ksStore = ks("storeFile", "LIMOO_KEYSTORE")
     signingConfigs {
-        val store = ks("storeFile", "LIMOO_KEYSTORE")
-        if (store != null) create("release") {
-            storeFile = rootProject.file(store)
+        if (ksStore != null) create("release") {
+            val file = rootProject.file(ksStore)
+            if (!file.exists()) throw GradleException("LIMOO_KEYSTORE=$ksStore does not exist. The signing key is loaded during configuration, so it must be present BEFORE the first ./gradlew command - see the 'Release keystore' step in .github/workflows/android.yml")
+            storeFile = file
             storePassword = ks("storePassword", "LIMOO_KEYSTORE_PASSWORD")
             keyAlias = ks("keyAlias", "LIMOO_KEY_ALIAS")
             keyPassword = ks("keyPassword", "LIMOO_KEY_PASSWORD")
+            val alias = keyAlias
+            if (alias.isNullOrBlank()) throw GradleException("No key alias: set LIMOO_KEY_ALIAS (or keyAlias in keystore.properties). Without it the APK cannot be signed.")
         }
     }
     buildTypes {

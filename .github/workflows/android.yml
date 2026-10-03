@@ -31,6 +31,27 @@ jobs:
       - name: Preflight
         run: python3 tools/preflight.py
 
+      # The keystore MUST be exported before ANY Gradle invocation. Gradle resolves signingConfigs at
+      # configuration time, and this step used to sit AFTER `assemble release`, so
+      # signingConfigs.findByName("release") was always null and every "release" APK silently fell back to
+      # the auto-generated debug key. AGP mints a fresh debug key per runner, so each build produced a
+      # DIFFERENT certificate and no update could ever install over the last one. Keep this above
+      # `Fetch Xray core`: the first ./gradlew call is what reads the environment.
+      - name: Release keystore
+        env:
+          KS_B64: ${{ secrets.LIMOO_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.LIMOO_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.LIMOO_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.LIMOO_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > release.jks
+            { echo LIMOO_KEYSTORE=release.jks; echo LIMOO_KEYSTORE_PASSWORD=$KS_PASS; echo LIMOO_KEY_ALIAS=$KEY_ALIAS; echo LIMOO_KEY_PASSWORD=$KEY_PASS; } >> $GITHUB_ENV
+            echo "release keystore staged from secrets"
+          else
+            echo '::warning::No LIMOO_KEYSTORE_B64 secret - the release APK will be signed with a throwaway debug key. Android will REFUSE to install it over the previous build (INSTALL_FAILED_UPDATE_INCOMPATIBLE) and every build gets a different certificate. Run tools/make-keystore.sh once to fix this permanently.'
+          fi
+
       - name: Gradle cache
         uses: actions/cache@v4
         with:
@@ -53,17 +74,25 @@ jobs:
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon
 
-      - name: Release keystore (optional, from secrets)
-        env:
-          KS_B64: ${{ secrets.LIMOO_KEYSTORE_B64 }}
-          KS_PASS: ${{ secrets.LIMOO_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.LIMOO_KEY_ALIAS }}
-          KEY_PASS: ${{ secrets.LIMOO_KEY_PASSWORD }}
+      # Fail the release if it is not signed with a real key. The step above already warns, but a warning
+      # that shipped five broken releases is not a guard. apksigner prints the certificate the APK is
+      # actually signed with, so this catches the silent debug-key fallback that the previous step order
+      # caused, and catches a wrong LIMOO_KEY_ALIAS too.
+      - name: Verify the release APK signature
         run: |
-          if [ -n "$KS_B64" ]; then
-            echo "$KS_B64" | base64 -d > release.jks
-            { echo LIMOO_KEYSTORE=release.jks; echo LIMOO_KEYSTORE_PASSWORD=$KS_PASS; echo LIMOO_KEY_ALIAS=$KEY_ALIAS; echo LIMOO_KEY_PASSWORD=$KEY_PASS; } >> $GITHUB_ENV
-          else echo '::warning::No LIMOO_KEYSTORE_B64 secret - the release APK is signed with a throwaway debug key. Android will REFUSE to install this over the previous build (INSTALL_FAILED_UPDATE_INCOMPATIBLE) and the user must uninstall first. Run tools/make-keystore.sh once to fix this permanently.'; fi
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          echo "APK: $APK"
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | head -1)
+          echo "apksigner: $APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK"
+          CERT=$("$APKSIGNER" verify --print-certs "$APK" | grep -i "Signer #1 certificate SHA-256 digest" || true)
+          echo "$CERT"
+          if echo "$CERT" | grep -qi "CN=Android Debug"; then
+            echo "::error::The release APK is signed with the throwaway Android Debug key. Every build mints a new one, so no update can ever install over the last. Check that the 'Release keystore' step runs BEFORE the first ./gradlew command."
+            exit 1
+          fi
+          echo "release APK is signed with a real key"
 
       - name: Upload APKs as workflow artifacts
         uses: actions/upload-artifact@v4
