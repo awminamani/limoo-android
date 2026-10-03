@@ -9,7 +9,7 @@ plugins {
 android {
     namespace = "app.limoo"; compileSdk = 34
     defaultConfig {
-        applicationId = "app.limoo"; minSdk = 26; targetSdk = 34; versionCode = 5; versionName = "0.5.0"
+        applicationId = "app.limoo"; minSdk = 26; targetSdk = 34; versionCode = 6; versionName = "0.6.0"
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
     // Release signing: keystore.properties (local, git-ignored) or LIMOO_* env vars (CI). Falls back to the
@@ -49,6 +49,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")   // QR scan (camera) + ZXing core for QR export
     implementation("androidx.glance:glance-appwidget:1.1.0") // home-screen widget
+    implementation("androidx.work:work-runtime-ktx:2.9.1") // periodic subscription auto-update
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.13")
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar"))))  // Xray core AAR (libv2ray.aar)

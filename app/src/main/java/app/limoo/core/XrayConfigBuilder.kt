@@ -15,20 +15,20 @@ object XrayConfigBuilder {
         put("inbounds", buildJsonArray { })
         put("outbounds", buildJsonArray {
             add(proxy(s, st))
-            add(buildJsonObject { put("tag", "direct"); put("protocol", "freedom") })
+            add(buildJsonObject { put("tag", "direct"); put("protocol", "freedom"); put("settings", buildJsonObject { put("domainStrategy", st.domainStrategy) }) })
         })
     }.toString()
 
     fun build(s: Server, st: AppSettings, tun: Boolean = false): String = buildJsonObject {
         put("log", buildJsonObject { put("loglevel", st.logLevel) })
-        put("dns", buildJsonObject {
-            put("servers", strs(listOf(st.remoteDns, st.directDns, "localhost")))
-            put("queryStrategy", if (st.ipv6) "UseIP" else "UseIPv4")
-        })
+        put("dns", dns(st))
         put("inbounds", inbounds(st, tun))
         put("outbounds", buildJsonArray {
             add(proxy(s, st))
-            add(buildJsonObject { put("tag", "direct"); put("protocol", "freedom") })
+            add(buildJsonObject {
+                put("tag", "direct"); put("protocol", "freedom")
+                put("settings", buildJsonObject { put("domainStrategy", st.domainStrategy) })
+            })
             add(buildJsonObject { put("tag", "block"); put("protocol", "blackhole") })
             if (st.fragment) add(buildJsonObject {
                 put("tag", "fragment"); put("protocol", "freedom")
@@ -39,7 +39,7 @@ object XrayConfigBuilder {
         // Required for queryAllOutboundTrafficStats() to report anything. Without a declared stats object
         // the core keeps no per-outbound counters, so the live figures silently stay at zero and the
         // notification never updates. SystemStats is what the gRPC stats service exposes.
-        put("stats", buildJsonObject {})
+        put("stats", buildJsonObject { })
         put("policy", buildJsonObject {
             put("levels", buildJsonObject { put("0", buildJsonObject { put("statsUserUplink", true); put("statsUserDownlink", true) }) })
             put("system", buildJsonObject { put("statsInboundUplink", true); put("statsInboundDownlink", true)
@@ -50,6 +50,27 @@ object XrayConfigBuilder {
 
     private fun strs(l: List<String>) = buildJsonArray { l.forEach { add(it.trim()) } }
 
+    /**
+     * DNS block. The remote resolver (usually DoH) is answered by the core, and the plain resolver is
+     * restricted to private names so a failed DoH bootstrap cannot take the tunnel down with it.
+     * `queryStrategy` follows the user's choice, and `disableCache` honours it instead of leaving caching
+     * on implicitly.
+     */
+    private fun dns(st: AppSettings) = buildJsonObject {
+        put("servers", buildJsonArray {
+            add(buildJsonObject { put("address", st.remoteDns); put("skipFallback", false) })
+            add(buildJsonObject {
+                put("address", st.directDns); put("domains", strs(listOf("geosite:private")))
+                put("expectIPs", strs(listOf("geoip:private")))
+            })
+            add(buildJsonObject { put("address", "localhost") })
+        })
+        put("queryStrategy", st.dnsStrategy.ifEmpty { if (st.ipv6) "UseIP" else "UseIPv4" })
+        put("disableCache", !st.dnsCache)
+        // PositiveTTL only takes effect with caching on; sending it with disableCache is rejected by the core.
+        if (st.dnsCache && st.dnsCacheTTL > 0) put("cacheStrategy", "PositiveTTL")
+    }
+
     private fun sniff(st: AppSettings) = buildJsonObject {
         put("enabled", st.sniffing); put("destOverride", strs(listOf("http", "tls", "quic"))); put("routeOnly", true)
     }
@@ -57,7 +78,13 @@ object XrayConfigBuilder {
     private fun inbounds(st: AppSettings, tun: Boolean) = buildJsonArray {
         if (tun) add(buildJsonObject {
             put("tag", "tun"); put("protocol", "tun")
-            put("settings", buildJsonObject { put("name", "xray0"); put("MTU", st.mtu); put("userLevel", 0) })
+            put("settings", buildJsonObject {
+                put("name", "xray0"); put("MTU", st.mtu); put("userLevel", 0)
+                // Without endpoint-independent NAT, QUIC/UDP traffic cannot leave the tunnel because the
+                // internal source port is not what the outside world expects to reply to. This is the
+                // single setting that decides whether UDP through the VPN works at all.
+                put("endpointIndependentNat", st.endpointIndependentNat)
+            })
             put("sniffing", sniff(st))
         })
         val listen = if (st.allowLan) "0.0.0.0" else "127.0.0.1"
@@ -70,6 +97,24 @@ object XrayConfigBuilder {
         })
     }
 
+    /**
+     * Socket options shared by every outbound. These are the connection-level knobs that decide latency and
+     * throughput, so they are user-visible rather than hard-coded.
+     */
+    private fun sockopt(st: AppSettings, dialerProxy: String? = null) = buildJsonObject {
+        put("tcpFastOpen", st.tcpFastOpen)
+        put("tcpNoDelay", st.tcpNoDelay)
+        if (st.tcpKeepAlive) {
+            put("tcpKeepAliveInterval", st.tcpKeepAliveInterval)
+            // Keep-alive idle is conventionally a few multiples of the interval; derive it rather than
+            // storing a second value that could disagree with the first.
+            put("tcpKeepAliveIdle", (st.tcpKeepAliveInterval * 3).coerceAtLeast(10))
+        }
+        // 0 means "system default" and must be omitted: bufferSize 0 stalls the connection outright.
+        if (st.bufferSize > 0) put("bufferSize", st.bufferSize * 1024)
+        if (dialerProxy != null) put("dialerProxy", dialerProxy)
+    }
+
     private fun proxy(s: Server, st: AppSettings) = buildJsonObject {
         put("tag", "proxy"); put("protocol", s.protocol)
         put("settings", when (s.protocol) {
@@ -80,7 +125,11 @@ object XrayConfigBuilder {
         })
         put("streamSettings", stream(s, st))
         if (st.mux && s.flow.isEmpty() && s.network != "xhttp" && s.security != "reality")
-            put("mux", buildJsonObject { put("enabled", true); put("concurrency", st.muxConcurrency) })
+            put("mux", buildJsonObject {
+                put("enabled", true); put("concurrency", st.muxConcurrency)
+                // Padding defeats traffic analysis that fingerprints multiplexed streams by length.
+                put("padding", st.muxPadding)
+            })
     }
 
     private fun vnext(s: Server, user: JsonObject) = buildJsonObject {
@@ -109,11 +158,17 @@ object XrayConfigBuilder {
                 put("path", path); if (s.hostHeader.isNotEmpty()) put("host", s.hostHeader); if (s.xhttpMode.isNotEmpty()) put("mode", s.xhttpMode)
             })
         }
-        if (st.fragment && s.security == "tls") put("sockopt", buildJsonObject { put("dialerProxy", "fragment") })
+        // Fragment rides on sockopt, so it has to be merged with the user's socket options rather than
+        // replacing them - a second `put("sockopt")` in the same builder would silently drop the first.
+        put("sockopt", sockopt(st, if (st.fragment && s.security == "tls") "fragment" else null))
     }
 
-    private fun rule(out: String, domain: List<String> = emptyList(), ip: List<String> = emptyList()) = buildJsonObject {
-        put("type", "field"); if (domain.isNotEmpty()) put("domain", strs(domain)); if (ip.isNotEmpty()) put("ip", strs(ip)); put("outboundTag", out)
+    private fun rule(out: String, domain: List<String> = emptyList(), ip: List<String> = emptyList(), skipOut: List<String> = emptyList()) = buildJsonObject {
+        put("type", "field")
+        if (domain.isNotEmpty()) put("domain", strs(domain))
+        if (ip.isNotEmpty()) put("ip", strs(ip))
+        if (skipOut.isNotEmpty()) put("outboundTag", strs(skipOut))
+        else put("outboundTag", out)
     }
 
     private val ipRe = Regex("""^(geoip:.+|\d{1,3}(\.\d{1,3}){3}(/\d+)?|[0-9a-fA-F]*:[0-9a-fA-F:]*:[0-9a-fA-F:]*(/\d+)?)$""")
@@ -124,7 +179,7 @@ object XrayConfigBuilder {
     }
 
     private fun routing(st: AppSettings) = buildJsonObject {
-        put("domainStrategy", "IPIfNonMatch")
+        put("domainStrategy", st.domainStrategy)
         put("rules", buildJsonArray {
             runCatching { Json.parseToJsonElement(st.customRules).jsonArray }.getOrNull()?.forEach { add(it) }   // user rules win
             userRule("block", st.blockRules); userRule("proxy", st.proxyRules); userRule("direct", st.directRules)
@@ -135,6 +190,10 @@ object XrayConfigBuilder {
                 "bypassChina" -> { add(rule("direct", domain = listOf("geosite:cn"))); add(rule("direct", ip = listOf("geoip:cn"))) }
                 "bypassRussia" -> { add(rule("direct", domain = listOf("geosite:category-ru"))); add(rule("direct", ip = listOf("geoip:ru"))) }
             }
+            // Last: Xray's own proxy/fragment/block traffic must bypass routing, or the core's outbound would
+            // be matched by a rule above and routed back into its own inbound. This is a direct outboundTag
+            // rule (a LIST of tags), not a domain/ip match, so it uses skipOut rather than `out`.
+            add(rule("direct", skipOut = listOf("proxy", "fragment", "block")))
         })
     }
 }

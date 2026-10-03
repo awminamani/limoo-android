@@ -51,7 +51,9 @@ fun SubFormSheet(initial: Subscription?, onDismiss: () -> Unit, onSave: (name: S
         NField("NAME (OPTIONAL)", name, { name = it })
         if (initial != null) ToggleRow("Auto-update", auto) { auto = it }
         val ok = url.startsWith("http")
-        if (initial == null && ok) BusyRow("Fetches on save")
+        // No "Fetches on save" hint here. An animation shown BEFORE the request exists is a lie about what
+        // the app is doing; the waiting overlay appears the moment the fetch actually starts. See
+        // SubFetchOverlay. The button state already tells the user the URL is not usable yet.
         NButton(if (initial == null) "ADD AND FETCH" else "SAVE", { onSave(name.trim(), url, auto); onDismiss() }, Modifier.fillMaxWidth().padding(top = 14.dp), primary = true, enabled = ok)
     }
 }
@@ -133,7 +135,8 @@ fun ImportSheet(p: ImportPreview, existingKeys: Set<String>, a: Actions, onDismi
     var pw by remember(p) { mutableStateOf("") }
     val dupes = remember(p) { p.servers.filter { Store.key(it) in existingKeys }.map { it.id }.toSet() }
     var chosen by remember(p) { mutableStateOf(p.servers.map { it.id }.toSet() - dupes) }
-    var group by remember(p) { mutableStateOf(p.title) }; var restore by remember(p) { mutableStateOf(false) }
+    var group by remember(p) { mutableStateOf(p.group) }; var restore by remember(p) { mutableStateOf(false) }
+    var applyLook by remember(p) { mutableStateOf(false) }
     var subName by remember(p) { mutableStateOf("") }
     val expired = p.expires > 0 && p.expires < System.currentTimeMillis() / 1000
 
@@ -174,13 +177,17 @@ fun ImportSheet(p: ImportPreview, existingKeys: Set<String>, a: Actions, onDismi
                 NField("GROUP (OPTIONAL)", group, { group = it }, placeholder = "keep servers organised")
             }
             if (p.settings != null) ToggleRow("Also restore settings", restore, "FROM BACKUP") { restore = it }
+            // A v2 file can carry just the look. Offered separately and OFF by default: adopting someone's
+            // theme is a preference, and doing it silently would be a surprise.
+            if (p.appearance != null && !restore) ToggleRow("Apply their theme", applyLook,
+                "${p.appearance.theme.uppercase()} · ${p.appearance.accent.uppercase()}") { applyLook = it }
 
             val count = chosen.size + p.subUrls.size
             if (busy) BusyBlock("Importing", "${chosen.size} servers · ${p.subUrls.size} subscriptions")
             Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 NButton("CANCEL", onDismiss, Modifier.weight(1f), enabled = !busy)
                 NButton(if (busy) "..." else if (count > 0 || restore) "IMPORT $count" else "IMPORT",
-                    { a.commitImport(p, p.servers.filter { it.id in chosen }, group.trim(), restore, subName.trim()) },
+                    { a.commitImport(p, p.servers.filter { it.id in chosen }, group.trim(), restore or applyLook, subName.trim()) },
                     Modifier.weight(1f), primary = true, enabled = !busy && (count > 0 || restore))
             }
         }
@@ -194,6 +201,10 @@ fun ShareSheet(servers: List<Server>, onDismiss: () -> Unit, a: Actions) {
     val n = LocalN.current
     var name by remember { mutableStateOf(if (servers.size == 1) servers[0].name else "Limoo servers") }
     var note by remember { mutableStateOf("") }; var pw by remember { mutableStateOf("") }; var days by remember { mutableStateOf(0) }
+    // What travels with the file. Everything is on by default because the sender chose it; each one is a
+    // single tap to leave out, which is the whole point of showing them.
+    var withLook by remember { mutableStateOf(true) }
+    var withGroup by remember { mutableStateOf(true) }
     NSheet(onDismiss) {
         NLabel("SHARE ${servers.size} SERVER${if (servers.size == 1) "" else "S"}")
         NField("TITLE", name, { name = it })
@@ -204,6 +215,13 @@ fun ShareSheet(servers: List<Server>, onDismiss: () -> Unit, a: Actions) {
             listOf(0 to "NEVER", 1 to "1 DAY", 7 to "7 DAYS", 30 to "30 DAYS").forEach { (d, l) -> NChip(l, days == d) { days = d } }
         }
         Text(if (pw.isEmpty()) "Anyone with the file can read the servers." else "Encrypted with AES-256. Share the password separately.", style = NType.label, color = n.dim, modifier = Modifier.padding(top = 12.dp))
+
+        NDivider()
+        Spacer(Modifier.height(Space.small))
+        NLabel("INCLUDE")
+        ToggleRow("Theme and accent", withLook, "THE RECEIVER CAN CHOOSE TO APPLY IT") { withLook = it }
+        if (withLook) ToggleRow("Group name", withGroup) { withGroup = it }
+
         Spacer(Modifier.height(Space.standard))
         NDivider()
         Spacer(Modifier.height(Space.small))
@@ -217,10 +235,10 @@ fun ShareSheet(servers: List<Server>, onDismiss: () -> Unit, a: Actions) {
         SheetRow(
             ".limoo link",
             "limoo:// - keeps notes and expiry",
-        ) { onDismiss(); a.share(servers, name, note, days, pw.ifEmpty { null }, true) }
+        ) { onDismiss(); a.share(servers, name, note, days, pw.ifEmpty { null }, true, withLook, withGroup) }
         SheetRow(
             ".limoo file",
             "encrypted with the password above",
-        ) { onDismiss(); a.share(servers, name, note, days, pw.ifEmpty { null }, false) }
+        ) { onDismiss(); a.share(servers, name, note, days, pw.ifEmpty { null }, false, withLook, withGroup) }
     }
 }

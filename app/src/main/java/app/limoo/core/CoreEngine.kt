@@ -3,6 +3,7 @@ package app.limoo.core
 import android.content.Context
 import app.limoo.model.AppSettings
 import java.lang.reflect.InvocationTargetException
+import java.lang.reflect.Method
 import java.lang.reflect.Proxy
 
 interface CoreEngine {
@@ -30,51 +31,92 @@ data class CoreTraffic(val up: Long, val down: Long, val upRate: Long = 0L, val 
  * Talks to libv2ray.aar (2dust/AndroidLibXrayLite) through reflection, so the app compiles with or without the AAR and a
  * missing/incompatible AAR produces a readable error instead of a build failure. Expects the CoreController API
  * (Libv2ray.newCoreController + startLoop(config[, tunFd])), where Xray's own `tun` inbound reads the VPN fd.
+ *
+ * Every reflective lookup is resolved ONCE and cached. `Class.forName` and `Class.getMethods` are both
+ * expensive - getMethods allocates a fresh copy of the whole method table on every call - and the traffic
+ * poller runs them several times a second for the life of the tunnel. Re-resolving them per tick was pure
+ * garbage-collector pressure on the connection path.
  */
 class LibXrayEngine(private val ctx: Context) : CoreEngine {
     @Volatile private var controller: Any? = null
 
-    private fun lib(): Class<*> = try { Class.forName("libv2ray.Libv2ray") } catch (e: ClassNotFoundException) {
+    /** Cached `libv2ray.Libv2ray` class and the statics we call on it. */
+    private object LibCache {
+        @Volatile var cls: Class<*>? = null
+        @Volatile var initEnv: Method? = null
+        @Volatile var newController: Method? = null
+        @Volatile var measureDelay: Method? = null
+    }
+
+    /** Cached per-controller instance methods, keyed by the controller we are currently running. */
+    @Volatile private var ctlFor: Any? = null
+    @Volatile private var mStart2: Method? = null
+    @Volatile private var mStart1: Method? = null
+    @Volatile private var mStop: Method? = null
+    @Volatile private var mRunning: Method? = null
+    @Volatile private var mAllStats: Method? = null
+    @Volatile private var mStats2: Method? = null
+
+    private fun lib(): Class<*> = LibCache.cls ?: try {
+        Class.forName("libv2ray.Libv2ray").also { LibCache.cls = it }
+    } catch (e: ClassNotFoundException) {
         throw IllegalStateException("Xray core (libv2ray.aar) is not bundled. Run ./gradlew fetchXrayCore (or copy it to app/libs) and rebuild.")
     }
 
+    /** Resolves and caches the statics. [fresh] forces a re-read, used only after an AAR is swapped. */
+    private fun statics(): Unit {
+        if (LibCache.newController != null) return
+        val l = lib()
+        LibCache.initEnv = l.methods.firstOrNull { it.name == "initCoreEnv" } ?: l.methods.firstOrNull { it.name == "initV2Env" }
+        LibCache.newController = l.methods.firstOrNull { it.name == "newCoreController" }
+        LibCache.measureDelay = l.methods.firstOrNull { it.name == "measureOutboundDelay" }
+    }
+
     /** Invokes a core method, unwrapping InvocationTargetException. Background pollers must use [callSafe]. */
-    private fun call(m: java.lang.reflect.Method, target: Any?, vararg a: Any?): Any? =
+    private fun call(m: Method, target: Any?, vararg a: Any?): Any? =
         try { m.invoke(target, *a) } catch (e: InvocationTargetException) { throw e.targetException }
 
     /** Never throws: Java-level failures from a background poller must not be fatal. */
-    private fun callSafe(m: java.lang.reflect.Method, target: Any?, vararg a: Any?): Any? =
+    private fun callSafe(m: Method, target: Any?, vararg a: Any?): Any? =
         try { call(m, target, *a) } catch (t: Throwable) { Crash.log("core call ${m.name}", t); null }
 
     /** True only when the controller exists and the core reports itself as running. */
-    private fun isRunning(c: Any): Boolean {
-        val g = c.javaClass.methods.firstOrNull { it.name == "getIsRunning" && it.parameterCount == 0 } ?: return true
-        return (callSafe(g, c) as? Boolean) == true
+    private fun isRunning(c: Any): Boolean = (callSafe(mRunning ?: return true, c) as? Boolean) == true
+
+    /** Caches this controller's method table. Called once per start, never in the poll loop. */
+    private fun bind(c: Any) {
+        if (ctlFor === c) return
+        val ms = c.javaClass.methods
+        mStart2 = ms.firstOrNull { it.name == "startLoop" && it.parameterCount == 2 }
+        mStart1 = ms.firstOrNull { it.name == "startLoop" && it.parameterCount == 1 }
+        mStop = ms.firstOrNull { it.name == "stopLoop" }
+        mRunning = ms.firstOrNull { it.name == "getIsRunning" && it.parameterCount == 0 }
+        mAllStats = ms.firstOrNull { it.name == "queryAllOutboundTrafficStats" && it.parameterCount == 0 }
+        mStats2 = ms.firstOrNull { it.name == "queryStats" && it.parameterCount == 2 }
+        ctlFor = c
     }
 
     /** Initialises the core environment (asset paths + xudp key) without starting a loop. Safe to call repeatedly. */
     fun ensureEnv(ctx: Context) {
-        val l = lib()
-        (l.methods.firstOrNull { it.name == "initCoreEnv" } ?: l.methods.firstOrNull { it.name == "initV2Env" })
-            ?.let { call(it, null, GeoManager.dir(ctx).absolutePath, xudpBaseKey(ctx)) }
+        statics()
+        LibCache.initEnv?.let { call(it, null, GeoManager.dir(ctx).absolutePath, xudpBaseKey(ctx)) }
     }
 
     @Synchronized
     override fun start(configJson: String, tunFd: Int, st: AppSettings) {
         stop()
+        statics()
         val l = lib()
         // xray.xudp.basekey must be 32 bytes as unpadded base64url (43 chars). See README "Fixes".
-        val key = xudpBaseKey(ctx)
-        (l.methods.firstOrNull { it.name == "initCoreEnv" } ?: l.methods.firstOrNull { it.name == "initV2Env" })
-            ?.let { call(it, null, GeoManager.dir(ctx).absolutePath, key) }
-        val factory = l.methods.firstOrNull { it.name == "newCoreController" }
+        LibCache.initEnv?.let { call(it, null, GeoManager.dir(ctx).absolutePath, xudpBaseKey(ctx)) }
+        val factory = LibCache.newController
             ?: throw IllegalStateException("This libv2ray.aar is too old (no CoreController API). Use the latest AndroidLibXrayLite release.")
         val cbType = factory.parameterTypes[0]
         val cb = Proxy.newProxyInstance(cbType.classLoader, arrayOf(cbType)) { _, m, _ -> if (m.returnType == java.lang.Long.TYPE) 0L else null }
         val c = call(factory, null, cb)!!
-        val loops = c.javaClass.methods.filter { it.name == "startLoop" }
-        val two = loops.firstOrNull { it.parameterCount == 2 }
-        if (two != null) call(two, c, configJson, tunFd) else call(loops.first(), c, configJson)
+        bind(c)
+        val two = mStart2
+        if (two != null) call(two, c, configJson, tunFd) else call(mStart1 ?: throw IllegalStateException("libv2ray has no startLoop"), c, configJson)
         controller = c
     }
 
@@ -89,16 +131,20 @@ class LibXrayEngine(private val ctx: Context) : CoreEngine {
         return key
     }
 
-    override fun isAlive(): Boolean = controller?.let { isRunning(it) } ?: false
+    override fun isAlive(): Boolean = controller?.let { bind(it); isRunning(it) } ?: false
 
     @Synchronized
     override fun stop() {
         val c = controller ?: return; controller = null
-        c.javaClass.methods.firstOrNull { it.name == "stopLoop" }?.let { runCatching { call(it, c) } }
+        // Drop the cached bindings with the controller: they belong to this instance's class, and a later
+        // start may hand back a different implementation whose methods would not match.
+        ctlFor = null
+        mStop?.let { runCatching { call(it, c) } }
     }
 
     override fun measureDelay(configJson: String, url: String): Long = runCatching {
-        val m = lib().methods.first { it.name == "measureOutboundDelay" }
+        statics()
+        val m = LibCache.measureDelay ?: return -1L
         (call(m, null, configJson, url) as Number).toLong()
     }.getOrDefault(-1L)
 
@@ -112,15 +158,15 @@ class LibXrayEngine(private val ctx: Context) : CoreEngine {
      */
     override fun queryTraffic(): CoreTraffic? {
         val c = controller ?: return null
-        val m = c.javaClass.methods.firstOrNull { it.name == "queryAllOutboundTrafficStats" && it.parameterCount == 0 }
-        if (m != null) {
-            if (!isRunning(c)) return null
-            val raw = callSafe(m, c) as? String ?: return null
+        bind(c)
+        if (!isRunning(c)) return null
+        val all = mAllStats
+        if (all != null) {
+            val raw = callSafe(all, c) as? String ?: return null
             return CoreStats.parse(raw)
         }
         // Older AARs: queryStats(tag, direction) - also reset-on-read.
-        val q = c.javaClass.methods.firstOrNull { it.name == "queryStats" && it.parameterCount == 2 } ?: return null
-        if (!isRunning(c)) return null
+        val q = mStats2 ?: return null
         var up = 0L; var down = 0L
         for (tag in CoreStats.COUNTED_TAGS) {
             up += (callSafe(q, c, tag, "uplink") as? Number)?.toLong()?.coerceAtLeast(0) ?: 0L
@@ -137,11 +183,22 @@ class LibXrayEngine(private val ctx: Context) : CoreEngine {
 object CoreDelay {
     @Volatile private var envReady = false
 
+    /**
+     * One engine for the whole process, bound to the first context we are handed. The reflection lookups it
+     * performs are cached inside the engine, so reusing it means pinging 200 servers no longer rescans the
+     * AAR's method table 200 times.
+     */
+    @Volatile private var shared: LibXrayEngine? = null
+
+    private fun engineFor(ctx: Context): LibXrayEngine {
+        shared?.let { return it }
+        return synchronized(this) { shared ?: LibXrayEngine(ctx.applicationContext).also { shared = it } }
+    }
+
     fun measure(ctx: Context, configJson: String, url: String): Long = try {
-        if (!envReady) { LibXrayEngine(ctx).ensureEnv(ctx); envReady = true }
-        val l = Class.forName("libv2ray.Libv2ray")
-        val m = l.methods.first { it.name == "measureOutboundDelay" }
-        (m.invoke(null, configJson, url) as Number).toLong()
+        val e = engineFor(ctx)
+        if (!envReady) { e.ensureEnv(ctx); envReady = true }
+        e.measureDelay(configJson, url)
     } catch (e: Throwable) { -1L }
 }
 

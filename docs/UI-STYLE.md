@@ -180,28 +180,23 @@ renders `BusyRow` and disables the confirm button.
 - The status-bar icon is a flat silhouette — Android tints it and discards colour, so only the letterform
   survives. Do not try to put fine detail in it.
 
-## 5a. Swipe actions (One UI style)
+## 5a. Server rows: no swipe (removed)
 
-`ui/SwipeRow.kt` -> `SwipeActionRow`. Replaces `SwipeToDismissBox` entirely.
+The swipe gesture was **removed at the user's request**. `ui/SwipeRow.kt` is deleted and must not return;
+preflight check 14c fails the build if `SwipeRow.kt` reappears or if any screen references a swipe composable.
 
-- **Right = Share, Left = Delete.** Share opens the sheet, which offers the standard `vless://` link, a
-  `limoo://` link, or a `.limoo` file. Favourite is no longer a swipe action; it stays in the row menu and
-  the multi-select bar.
-- **The row tracks the finger exactly, 1:1, at one constant speed** for its whole travel. An earlier
-  version damped the drag past a threshold to feel "heavy"; it read as laggy instead, because the row
-  fighting the touch desyncs it from the finger. Do not add damping, rubber-banding or per-zone speeds.
-- **Reveal, don't fire.** Past **75%** the row latches open: it completes its travel and the action button
-  appears at full size. Releasing does NOT run the action - the button has to be tapped. A gesture that
-  commits on release is how servers get deleted by accident.
-- **The button fills the revealed area** and the full row height. An earlier version used a small pill
-  detached from the row edge, which read as a floating control rather than part of the list.
-- **Animation only on release.** While a finger is down the row is driven straight from the drag value;
-  the spring runs only when settling. Animating during the drag is what produced the jank.
-- Speed is deliberately unhurried: the travel is 75% of the row, so a normal swipe takes a deliberate
-  moment rather than a flick.
-- **Never destructive on the gesture itself.** The row stays in place and the caller acts; delete still
-  goes through `Ui.say(..., "UNDO")`. A mis-swipe must always be recoverable.
-- Delete uses the signal colour - the one place a swipe background takes the accent.
+Why, so it is not "helpfully" re-added:
+
+- A horizontal drag on a list row is a destructive gesture on a list where rows are near-identical. It cost
+  accidental deletions that the undo toast only partly hides.
+- Share and Delete were the only two swipe actions, and **both already exist in the row menu**, so removing
+  the gesture removed nothing that was not already reachable.
+
+The row is now a plain line: **tap** selects, **long-press** enters multi-select, **overflow mark** opens the
+menu (Edit · Duplicate · Favourite · QR · Copy link · Share as .limoo · Test delay · Move to group · Delete).
+Multi-select keeps a Delete button and still goes through `Ui.say(..., "UNDO")`.
+
+If a row-level action is ever needed again, put it in the menu — do not reintroduce a gesture.
 
 ## 5b. Accent-reactive wallpaper
 

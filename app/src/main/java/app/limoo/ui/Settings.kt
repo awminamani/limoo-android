@@ -14,6 +14,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.limoo.Store
 import app.limoo.core.GeoManager
+import app.limoo.core.SubUpdateWorker
 import app.limoo.model.AppSettings
 import kotlinx.coroutines.launch
 
@@ -33,6 +34,10 @@ private fun Page(title: String, onBack: () -> Unit, content: @Composable ColumnS
         content(); Spacer(Modifier.height(Space.section))
     }
 }
+
+/** The `›` chevron every navigable row ends with. One place, so it cannot drift. */
+@Composable
+private fun Chevron() = Text("›", style = NType.body, color = LocalN.current.muted)
 
 @Composable
 fun GeoCard(store: Store) {
@@ -56,6 +61,7 @@ fun SettingsScreen(store: Store, a: Actions) {
     var page by rememberSaveable { mutableStateOf("") }
     val st by store.settings.collectAsState()
     var picking by remember { mutableStateOf(false) }; var confirmReset by remember { mutableStateOf(false) }
+    var interval by remember { mutableStateOf(false) }
     fun upd(f: (AppSettings) -> AppSettings) = store.update(f)
     BackHandler(page.isNotEmpty()) { page = "" }
 
@@ -64,18 +70,21 @@ fun SettingsScreen(store: Store, a: Actions) {
         "" -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Space.card)) {
             Text("Settings", style = NType.display, color = n.text, modifier = Modifier.padding(top = Space.standard, bottom = Space.compact))
             Group {
-                NRow("Connection", "${st.mode} · ${if (st.autoConnect) "auto-connect" else "manual"}", { page = "conn" }) { Text("›", style = NType.body, color = n.muted) }; NDivider()
-                NRow("Routing", st.routingPreset.removePrefix("bypass").ifEmpty { "all" }, { page = "route" }) { Text("›", style = NType.body, color = n.muted) }; NDivider()
-                NRow("DNS", "", { page = "dns" }) { Text("›", style = NType.body, color = n.muted) }; NDivider()
-                NRow("Advanced", "fragment · mux · logs", { page = "adv" }) { Text("›", style = NType.body, color = n.muted) }
+                NRow("Connection", "${st.mode} · ${if (st.autoConnect) "auto-connect" else "manual"}", { page = "conn" }) { Chevron() }; NDivider()
+                NRow("Routing", st.routingPreset.removePrefix("bypass").ifEmpty { "all" }, { page = "route" }) { Chevron() }; NDivider()
+                NRow("DNS", st.dnsStrategy, { page = "dns" }) { Chevron() }; NDivider()
+                NRow("Advanced", "fragment · mux · buffers · logs", { page = "adv" }) { Chevron() }; NDivider()
+                NRow("Battery", if (st.batterySaver) "saver on" else "saver off", { page = "power" }) { Chevron() }
             }
             Group {
-                NRow("Per-app proxy", if (st.perAppMode == "off") "off" else "${st.perAppMode} · ${st.perApp.size} apps", { page = "apps" }) { Text("›", style = NType.body, color = n.muted) }; NDivider()
-                NRow("Routing data", "geoip · geosite", { page = "geo" }) { Text("›", style = NType.body, color = n.muted) }
+                NRow("Subscriptions", subSummary(st), { page = "subs" }) { Chevron() }; NDivider()
+                NRow("Per-app proxy", if (st.perAppMode == "off") "off" else "${st.perAppMode} · ${st.perApp.size} apps", { page = "apps" }) { Chevron() }; NDivider()
+                NRow("Routing data", "geoip · geosite", { page = "geo" }) { Chevron() }
             }
             Group {
-                NRow("Appearance", "${st.theme} · ${st.accent}", { page = "look" }) { Text("›", style = NType.body, color = n.muted) }; NDivider()
-                NRow("Backup and about", "", { page = "about" }) { Text("›", style = NType.body, color = n.muted) }
+                NRow("Appearance", "${st.theme} · ${st.accent}", { page = "look" }) { Chevron() }; NDivider()
+                NRow("Background", if (st.hasCustomBackground()) "custom image" else "default", { page = "bg" }) { Chevron() }; NDivider()
+                NRow("Backup and about", "", { page = "about" }) { Chevron() }
             }
             Spacer(Modifier.height(24.dp))
         }
@@ -83,26 +92,30 @@ fun SettingsScreen(store: Store, a: Actions) {
             Group {
                 val sysCtx = LocalContext.current
                 ToggleRow("Kill switch", st.killSwitch, "BLOCK TRAFFIC IF THE CONNECTION DROPS") { v -> upd { it.copy(killSwitch = v) } }; NDivider()
-                NRow("System kill switch", "ALWAYS-ON VPN + BLOCK CONNECTIONS WITHOUT VPN", { runCatching { sysCtx.startActivity(android.content.Intent(android.provider.Settings.ACTION_VPN_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } }) { Text("›", style = NType.body, color = n.muted) }; NDivider()
+                NRow("System kill switch", "ALWAYS-ON VPN + BLOCK CONNECTIONS WITHOUT VPN", { runCatching { sysCtx.startActivity(android.content.Intent(android.provider.Settings.ACTION_VPN_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } }) { Chevron() }; NDivider()
                 ChoiceRow("Mode", listOf("vpn", "proxy"), st.mode) { v -> upd { it.copy(mode = v) } }; NDivider()
                 ToggleRow("Connect on app start", st.autoConnect) { v -> upd { it.copy(autoConnect = v) } }; NDivider()
                 ToggleRow("Auto-select fastest server", st.autoSelect, "BEFORE EVERY CONNECT") { v -> upd { it.copy(autoSelect = v) } }; NDivider()
                 ToggleRow("Real delay test", st.realPing, "CORE PROBE - OFF MEANS A PLAIN TCP CONNECT") { v -> upd { it.copy(realPing = v) } }; NDivider()
                 ToggleRow("IPv6", st.ipv6) { v -> upd { it.copy(ipv6 = v) } }; NDivider()
+                // Without this, QUIC/UDP cannot leave the tunnel at all, which breaks voice/video calls and
+                // some game traffic rather than merely slowing it down.
+                ToggleRow("UDP through tunnel", st.endpointIndependentNat, "REQUIRED FOR QUIC - TURN OFF ONLY TO TROUBLESHOOT") { v -> upd { it.copy(endpointIndependentNat = v) } }; NDivider()
                 ToggleRow("Allow LAN connections", st.allowLan, "SHARE THE PROXY ON YOUR NETWORK") { v -> upd { it.copy(allowLan = v) } }
             }
             Group {
                 FieldRow("Test URL", st.testUrl) { v -> upd { it.copy(testUrl = v) } }
                 NumberRow("Ping timeout (ms)", st.pingTimeoutMs) { v -> upd { it.copy(pingTimeoutMs = v.coerceIn(500, 20000)) } }
-                NumberRow("MTU", st.mtu) { v -> upd { it.copy(mtu = v) } }
+                NumberRow("MTU", st.mtu) { v -> upd { it.copy(mtu = v.coerceIn(576, 9000)) } }
                 FieldRow("VPN DNS", st.vpnDns) { v -> upd { it.copy(vpnDns = v) } }
-                NumberRow("SOCKS port", st.socksPort) { v -> upd { it.copy(socksPort = v) } }
-                NumberRow("HTTP port", st.httpPort) { v -> upd { it.copy(httpPort = v) } }
+                NumberRow("SOCKS port", st.socksPort) { v -> upd { it.copy(socksPort = v.coerceIn(1, 65535)) } }
+                NumberRow("HTTP port", st.httpPort) { v -> upd { it.copy(httpPort = v.coerceIn(1, 65535)) } }
             }
         }
         "route" -> Page("ROUTING", { page = "" }) {
             Group {
                 ChoiceRow("Preset", listOf("global", "bypassIran", "bypassChina", "bypassRussia"), st.routingPreset) { v -> upd { it.copy(routingPreset = v) } }; NDivider()
+                ChoiceRow("Domain strategy", listOf("AsIs", "IPIfNonMatch", "IPOnDemand"), st.domainStrategy, sub = "HOW DOMAINS ARE RESOLVED FOR RULE MATCHING") { v -> upd { it.copy(domainStrategy = v) } }; NDivider()
                 ToggleRow("Block ads", st.blockAds) { v -> upd { it.copy(blockAds = v) } }
             }
             Text("One per line: domain:x.com · full:x.com · keyword:x · geosite:google · geoip:ir · 1.2.3.0/24", style = NType.bodySmall, color = n.muted, modifier = Modifier.padding(vertical = Space.compact))
@@ -118,6 +131,11 @@ fun SettingsScreen(store: Store, a: Actions) {
                 FieldRow("Remote DNS", st.remoteDns) { v -> upd { it.copy(remoteDns = v) } }
                 FieldRow("Direct DNS", st.directDns) { v -> upd { it.copy(directDns = v) } }
             }
+            Group {
+                ChoiceRow("Query strategy", listOf("UseIP", "UseIPv4", "UseIPv6"), st.dnsStrategy) { v -> upd { it.copy(dnsStrategy = v) } }; NDivider()
+                ToggleRow("Cache results", st.dnsCache, "OFF RECONNECTS EVERY RESOLUTION") { v -> upd { it.copy(dnsCache = v) } }; NDivider()
+                if (st.dnsCache) NumberRow("Cache lifetime (s, 0 = forever)", st.dnsCacheTTL) { v -> upd { it.copy(dnsCacheTTL = v.coerceIn(0, 86400)) } }
+            }
         }
         "adv" -> Page("ADVANCED", { page = "" }) {
             Group {
@@ -130,10 +148,52 @@ fun SettingsScreen(store: Store, a: Actions) {
             }
             Group {
                 ToggleRow("Mux", st.mux) { v -> upd { it.copy(mux = v) } }
-                if (st.mux) NumberRow("Mux concurrency", st.muxConcurrency) { v -> upd { it.copy(muxConcurrency = v) } }
-                NDivider(); ToggleRow("Sniffing", st.sniffing) { v -> upd { it.copy(sniffing = v) } }; NDivider()
+                if (st.mux) {
+                    NumberRow("Mux concurrency", st.muxConcurrency) { v -> upd { it.copy(muxConcurrency = v.coerceIn(1, 128)) } }
+                    ToggleRow("Mux padding", st.muxPadding, "HIDES STREAM LENGTHS FROM ANALYSIS") { v -> upd { it.copy(muxPadding = v) } }
+                }
+            }
+            Group {
+                NLabel("TRANSPORT", Modifier.padding(horizontal = Space.card, vertical = Space.compact))
+                // Nagle batches small writes, which adds up to ~40 ms to every interactive exchange.
+                ToggleRow("No Nagle delay", st.tcpNoDelay, "LOWER LATENCY, TINY BANDWIDTH COST") { v -> upd { it.copy(tcpNoDelay = v) } }; NDivider()
+                ToggleRow("TCP fast open", st.tcpFastOpen, "FEWER ROUND TRIPS, NOT SUPPORTED EVERYWHERE") { v -> upd { it.copy(tcpFastOpen = v) } }; NDivider()
+                ToggleRow("TCP keep-alive", st.tcpKeepAlive, "HOLDS IDLE CONNECTIONS OPEN") { v -> upd { it.copy(tcpKeepAlive = v) } }
+                if (st.tcpKeepAlive) NumberRow("Keep-alive interval (s)", st.tcpKeepAliveInterval) { v -> upd { it.copy(tcpKeepAliveInterval = v.coerceIn(0, 300)) } }
+                Spacer(Modifier.height(Space.small))
+                NumberRow("Socket buffer (kB, 0 = system)", st.bufferSize) { v -> upd { it.copy(bufferSize = v.coerceIn(0, 8192)) } }
+                NLabel("LARGER BUFFERS HELP ON HIGH-LATENCY OR HIGH-BANDWIDTH LINKS", Modifier.padding(horizontal = Space.card, vertical = Space.micro))
+            }
+            Group {
+                ToggleRow("Sniffing", st.sniffing, "READS THE DESTINATION FROM HTTP, TLS AND QUIC") { v -> upd { it.copy(sniffing = v) } }; NDivider()
                 ChoiceRow("Log level", listOf("none", "error", "warning", "info", "debug"), st.logLevel) { v -> upd { it.copy(logLevel = v) } }
             }
+        }
+        "power" -> Page("BATTERY", { page = "" }) {
+            Group {
+                ToggleRow("Battery saver", st.batterySaver, "HALVES THE LIVE-STAT AND NOTIFICATION RATE, SKIPS THE PING SWEEP ON CONNECT") { v -> upd { it.copy(batterySaver = v) } }; NDivider()
+                NumberRow("Stat interval (ms)", st.statIntervalMs) { v -> upd { it.copy(statIntervalMs = v.coerceIn(500, 5000)) } }
+            }
+            Text(
+                "The live figures, the notification speed and the connect-time latency sweep are what keep the app awake. Lower the interval or turn the saver on if the tunnel shows up in your battery usage.",
+                style = NType.bodySmall, color = n.muted, modifier = Modifier.padding(vertical = Space.compact),
+            )
+        }
+        "subs" -> Page("SUBSCRIPTIONS", { page = "" }) {
+            Group {
+                // On by default, as asked. Both this AND each subscription's own toggle must be on.
+                ToggleRow("Auto-update", st.subAutoUpdate, "REFRESHES THE LIST ON A SCHEDULE, EVEN WHEN THE APP IS CLOSED") { v ->
+                    upd { it.copy(subAutoUpdate = v) }
+                    SubUpdateWorker.sync(LocalContext.current, store.settings.value)
+                }; NDivider()
+                if (st.subAutoUpdate) {
+                    NRow("Every", intervalLabel(st.subUpdateIntervalMin), { interval = true }) { Chevron() }
+                }
+            }
+            Text(
+                "Android will not run background work more often than every 15 minutes, so a shorter interval is a floor rather than a guarantee. The refresh also runs when the app is opened.",
+                style = NType.bodySmall, color = n.muted, modifier = Modifier.padding(vertical = Space.compact),
+            )
         }
         "apps" -> Page("APPS", { page = "" }) {
             Group {
@@ -160,20 +220,69 @@ fun SettingsScreen(store: Store, a: Actions) {
                 ToggleRow("Detect configs in clipboard", st.clipboardWatch, "OFFERS TO IMPORT WHEN YOU OPEN LIMOO") { v -> upd { it.copy(clipboardWatch = v) } }
             }
         }
+        "bg" -> Page("BACKGROUND", { page = "" }) {
+            Group {
+                // The default is always one tap away, which is the whole point: a custom image is a
+                // preference, never a trap the user has to undo.
+                NRow("Default background", "THE LIMOO ARTWORK", { upd { it.copy(bgSource = "", bgDim = 0.45f, bgBlur = 0f) }; Ui.say("DEFAULT BACKGROUND") }, highlight = !st.hasCustomBackground()); NDivider()
+                NRow("Choose from gallery", if (st.hasCustomBackground()) "CUSTOM IMAGE SET" else "PICK A PHOTO", a.pickBackground, highlight = st.hasCustomBackground())
+            }
+            if (st.hasCustomBackground()) {
+                NLabel("DIM", Modifier.padding(horizontal = Space.card, top = Space.compact))
+                NSlider("Background dim", st.bgDim, 0f, 0.95f, valueLabel = "${(st.bgDim * 100).toInt()}%") { v ->
+                    upd { it.copy(bgDim = v) }
+                }
+                NSlider("Background blur", st.bgBlur, 0f, 1f, valueLabel = "${(st.bgBlur * 100).toInt()}%") { v ->
+                    upd { it.copy(bgBlur = v) }
+                }
+                NLabel("BLUR REDUCES THE IMAGE DECODE SIZE, SO IT COSTS NOTHING EXTRA", Modifier.padding(horizontal = Space.card))
+            }
+            Text(
+                "The photo stays on your device. Limoo stores only the reference, never a copy, and the gallery picker asks for no storage permission. A shared .limoo file carries the dim and blur but never your image.",
+                style = NType.bodySmall, color = n.muted, modifier = Modifier.padding(vertical = Space.compact),
+            )
+        }
         else -> Page("BACKUP", { page = "" }) {
             Group {
-                NRow("Export backup", "servers · subscriptions · settings", a.exportBackup) { Text("›", style = NType.body, color = n.muted) }; NDivider()
-                NRow("Restore from file", "opens the import preview", a.pickFile) { Text("›", style = NType.body, color = n.muted) }; NDivider()
-                NRow("Reset settings", "servers are kept", { confirmReset = true }) { Text("›", style = NType.body, color = n.muted) }
+                NRow("Export backup", "servers · subscriptions · settings · look", a.exportBackup) { Chevron() }; NDivider()
+                NRow("Restore from file", "opens the import preview", a.pickFile) { Chevron() }; NDivider()
+                NRow("Reset settings", "servers are kept", { confirmReset = true }) { Chevron() }
             }
             Group {
                 NRow("Limoo", "version " + LocalContext.current.let { c -> runCatching { c.packageManager.getPackageInfo(c.packageName, 0).versionName }.getOrNull() ?: "?" }) {}; NDivider()
-                NRow("Core", "Xray via libv2ray") {}
+                NRow("Core", "Xray via libv2ray") {}; NDivider()
+                NRow("File format", ".limoo v2 - reads v1") {}
             }
         }
     }
 
     if (picking) AppPickerDialog(st.perApp, { l -> upd { it.copy(perApp = l) }; picking = false }, { picking = false })
+
+    if (interval) {
+        val ctx = LocalContext.current
+        NSheet({ interval = false }) {
+            NLabel("Update every")
+            Spacer(Modifier.height(Space.compact))
+            listOf(60 to "1 HOUR", 360 to "6 HOURS", 720 to "12 HOURS", 1440 to "24 HOURS").forEach { (m, l) ->
+                SheetRow(l, highlight = st.subUpdateIntervalMin == m) {
+                    upd { it.copy(subUpdateIntervalMin = m) }
+                    SubUpdateWorker.sync(ctx, store.settings.value)
+                    interval = false
+                }
+            }
+            NDivider()
+            Spacer(Modifier.height(Space.small))
+            NField("CUSTOM (MINUTES)", st.subUpdateIntervalMin.toString(), { v ->
+                val m = v.toIntOrNull()
+                if (m != null && m in 15..10080) {
+                    upd { it.copy(subUpdateIntervalMin = m) }
+                    SubUpdateWorker.sync(ctx, store.settings.value)
+                }
+            }, keyboard = KeyboardType.Number)
+            NLabel("BETWEEN 15 MINUTES AND 7 DAYS", Modifier.padding(top = Space.small))
+        }
+    }
+
     if (confirmReset) NSheet({ confirmReset = false }) {
         NLabel("Reset all settings?")
         Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -181,4 +290,13 @@ fun SettingsScreen(store: Store, a: Actions) {
             NButton("Reset", { upd { AppSettings() }; confirmReset = false; Ui.say("Settings reset") }, Modifier.weight(1f), danger = true)
         }
     }
+}
+
+/** "ON · EVERY 6 HOURS" / "OFF", shown as the row's subtitle on the Settings index. */
+private fun subSummary(st: AppSettings): String =
+    if (!st.subAutoUpdate) "off" else "on · ${intervalLabel(st.subUpdateIntervalMin)}"
+
+private fun intervalLabel(min: Int): String = when (min) {
+    60 -> "1 HOUR"; 360 -> "6 HOURS"; 720 -> "12 HOURS"; 1440 -> "24 HOURS"
+    else -> if (min < 60) "$min MIN" else "${min / 60}H ${min % 60}M".trim()
 }

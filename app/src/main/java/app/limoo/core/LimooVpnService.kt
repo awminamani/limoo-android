@@ -69,6 +69,9 @@ class LimooVpnService : VpnService() {
     private var counterJob: Job? = null
     private var reconnectJob: Job? = null
     private var stopJob: Job? = null
+    /** Live default network, so the tun can name what sits underneath it. See [trackNetwork]. */
+    @Volatile private var currentNetwork: android.net.Network? = null
+    @Volatile private var netCallback: android.net.ConnectivityManager.NetworkCallback? = null
     internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val engine: CoreEngine by lazy { LibXrayEngine(this) }
 
@@ -187,12 +190,14 @@ class LimooVpnService : VpnService() {
             val held = tun
             try {
                 val st = store.settings.value
-                if (st.autoSelect) store.autoSelectBest()
+                // Auto-select spins up a core probe per server. On battery saver that is far too expensive to
+                // do silently on every connect, so it is skipped unless the user asked for it explicitly.
+                if (st.autoSelect && !st.batterySaver) store.autoSelectBest()
                 val server = store.selected() ?: throw IllegalStateException("No server selected")
                 if (!GeoManager.ensure(applicationContext, st.geoSource, if (st.geoAutoUpdate) 7 else Long.MAX_VALUE))
                     throw IllegalStateException("Routing data (geoip/geosite) is missing and could not be downloaded. Check the connection and retry.")
-                if (st.mode == "vpn") tun = buildTun(st) ?: throw IllegalStateException("VPN permission was revoked")
-                else tun = null
+                if (st.mode == "vpn") { trackNetwork(true); tun = buildTun(st) ?: throw IllegalStateException("VPN permission was revoked") }
+                else { unregisterNetwork(); tun = null }
                 if (held != null && held !== tun) runCatching { held.close() }
                 blocked.value = false
                 engine.start(XrayConfigBuilder.build(server, st, tun != null), tun?.fd ?: -1, st)
@@ -200,7 +205,7 @@ class LimooVpnService : VpnService() {
                 connectedAt.value = System.currentTimeMillis(); store.touch(server.id)
                 state.value = State.Connected
                 runCatching { nm.notify(NOTIF_ID, notification(server.name, fmtSpeed(0, 0), fmtTotal(0, 0), connectedAt.value)) }
-                startCounterLoop()
+                startCounterLoop(st)
             } catch (c: CancellationException) { throw c
             } catch (t: Throwable) { fail(t.message ?: t.javaClass.simpleName) }
         }
@@ -215,7 +220,46 @@ class LimooVpnService : VpnService() {
             "deny" -> st.perApp.forEach { runCatching { b.addDisallowedApplication(it) } }
         }
         if (st.perAppMode != "allow") runCatching { b.addDisallowedApplication(packageName) } // Xray's own sockets must bypass the tunnel
+        // Tell Android which physical network sits underneath, so the system does not have to discover it
+        // itself and can avoid routing the tunnel's own bound sockets back into it. Must be a real Network,
+        // so it is only set while we are actually tracking a live default network.
+        currentNetwork?.let { runCatching { b.setUnderlyingNetworks(arrayOf(it)) } }
         return b.establish()
+    }
+
+    /**
+     * Tracks the device's current default network so the tun builder can name it.
+     *
+     * This is not cosmetic: without an underlying network the system keeps re-resolving the physical route
+     * on every network change, and a handover (Wi-Fi to cellular) can leave the tunnel bound to a dead
+     * interface for seconds. Registering the callback lets the tunnel follow the handover instead.
+     */
+    private fun trackNetwork(enabled: Boolean) {
+        if (!enabled) { unregisterNetwork(); return }
+        if (netCallback != null) return
+        val cm = getSystemService(android.net.ConnectivityManager::class.java) ?: return
+        val cb = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) {
+                currentNetwork = network
+                // A handover invalidates the tun: rebuild it so the new network is the one underneath.
+                if (LimooVpnService.state.value == State.Connected) runCatching { reconnectInPlace() }
+            }
+            override fun onLost(network: android.net.Network) {
+                if (currentNetwork == network) currentNetwork = null
+            }
+        }
+        netCallback = cb
+        val req = android.net.NetworkRequest.Builder()
+            .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET).build()
+        runCatching { cm.registerNetworkCallback(req, cb) }
+            .onFailure { netCallback = null }
+        runCatching { currentNetwork = cm.activeNetwork }
+    }
+
+    private fun unregisterNetwork() {
+        val cb = netCallback ?: return; netCallback = null
+        runCatching { getSystemService(android.net.ConnectivityManager::class.java)?.unregisterNetworkCallback(cb) }
+        currentNetwork = null
     }
 
     private fun fmtSpeed(downRate: Long, upRate: Long) = "↓ ${fmtRate(downRate)}   ↑ ${fmtRate(upRate)}"
@@ -233,9 +277,14 @@ class LimooVpnService : VpnService() {
      * in this process, so its sockets are ours). If the core keeps reporting zero while Android sees real
      * bytes (an AAR without outbound stats), it switches to the Android source rather than showing 0 forever.
      * Rates are measured against the real elapsed time, so a late tick does not show a fake spike.
+     *
+     * The tick rate is the user's (AppSettings.statIntervalMs), doubled by battery saver, and the watchdog
+     * interval is derived from it so a slow tick does not mean a slow death check.
      */
-    private fun startCounterLoop() {
+    private fun startCounterLoop(st: AppSettings) {
         counterJob?.cancel()
+        val tickMs = (if (st.batterySaver) st.statIntervalMs.coerceAtLeast(500) * 2 else st.statIntervalMs).coerceIn(500, 5000).toLong()
+        val watchdogEvery = maxOf(1L, 5000L / tickMs)
         counterJob = scope.launch {
             val uid = Process.myUid()
             fun rx() = TrafficStats.getUidRxBytes(uid).let { if (it < 0) 0L else it }
@@ -246,15 +295,16 @@ class LimooVpnService : VpnService() {
             var sysUp = 0L; var sysDown = 0L
             var useCore = true
             var lastTick = SystemClock.elapsedRealtime()
-            var lastPost = 0L; var lastFlush = lastTick; var ticks = 0
+            var lastPost = 0L; var lastFlush = lastTick; var ticks = 0L
             var downEma = 0.0; var upEma = 0.0
             while (isActive) {
-                delay(1000); ticks++
+                delay(tickMs); ticks++
                 val now = SystemClock.elapsedRealtime()
                 val elapsed = (now - lastTick).coerceAtLeast(1L); lastTick = now
 
-                // Watchdog: the Go core can die without telling us. Every 5 s, check it is still running.
-                if (ticks % 5 == 0 && !runCatching { engine.isAlive() }.getOrDefault(true)) {
+                // Watchdog: the Go core can die without telling us. Check it on a wall-clock cadence,
+                // derived from the tick so a slower poll does not also slow the death check.
+                if (ticks % watchdogEvery == 0L && !runCatching { engine.isAlive() }.getOrDefault(true)) {
                     fail(getString(R.string.core_died)); return@launch
                 }
 
@@ -293,8 +343,10 @@ class LimooVpnService : VpnService() {
 
                 if (now - lastFlush >= 30_000L) { lastFlush = now; flushUsage() }
 
-                // Notification: every 2 s is live enough and stays well under SystemUI's update rate limit.
-                if (now - lastPost >= 2000L) {
+                // Notification: re-posting is the single most expensive thing in this loop, so the interval
+                // follows the same battery-saver decision as the sampler.
+                val postEvery = if (st.batterySaver) 5_000L else 2_000L
+                if (now - lastPost >= postEvery) {
                     lastPost = now
                     runCatching {
                         nm.notify(NOTIF_ID, notification(serverName.value, fmtSpeed(downRate, upRate), fmtTotal(totalDown, totalUp), connectedAt.value))
@@ -344,6 +396,7 @@ class LimooVpnService : VpnService() {
         if (!keepError) state.value = State.Idle
         connectedAt.value = 0; traffic.value = null; trafficExact.value = false; blocked.value = false
         stopForeground(STOP_FOREGROUND_REMOVE)
+        unregisterNetwork()
         val t = tun; tun = null
         // Record the teardown so a reconnect can wait for the core to actually let go before starting again.
         stopJob = scope.launch { runCatching { engine.stop() }; runCatching { t?.close() } }
@@ -356,6 +409,7 @@ class LimooVpnService : VpnService() {
         // If the system destroys us without ACTION_STOP, do not leave the core or the tun fd running.
         counterJob?.cancel(); job?.cancel()
         flushUsage()
+        unregisterNetwork()
         runCatching { engine.stop() }; runCatching { tun?.close() }; tun = null
         if (state.value != State.Error) state.value = State.Idle
         connectedAt.value = 0; traffic.value = null; trafficExact.value = false; blocked.value = false

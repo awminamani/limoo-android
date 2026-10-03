@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.graphics.drawable.toBitmap
+import app.limoo.LimooApp
 import app.limoo.format.LimooFile
 import app.limoo.format.LimooPayload
 import app.limoo.format.LinkBuilder
@@ -116,7 +117,16 @@ private fun qrBitmap(text: String, size: Int = 720): Bitmap? = try {
 fun QrDialog(server: Server, onDismiss: () -> Unit) {
     val n = LocalN.current; val clip = LocalClipboardManager.current
     var asLimoo by remember { mutableStateOf(false) }
-    val text = if (asLimoo) LimooFile.toDeepLink(LimooPayload(name = server.name, servers = listOf(server.copy(pingMs = -1, fav = false, subId = "")))) else LinkBuilder.build(server)
+    // v2 payload, same as a shared file: servers plus the sender's look, minus the image (a content:// URI
+    // would mean nothing on the receiving device).
+    val st = LocalContext.current.let { c -> (c.applicationContext as? LimooApp)?.store?.settings?.value }
+    val text = if (asLimoo) LimooFile.toDeepLink(
+        LimooPayload(
+            name = server.name,
+            servers = listOf(server.copy(pingMs = -1, fav = false, subId = "")),
+            appearance = st?.let { LimooFile.appearanceOf(it) },
+        ),
+    ) else LinkBuilder.build(server)
     val bmp = remember(text) { qrBitmap(text) }
     Dialog(onDismiss) {
         NCard(Modifier.fillMaxWidth()) {

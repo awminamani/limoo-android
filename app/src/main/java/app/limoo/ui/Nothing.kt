@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -30,6 +31,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
@@ -550,11 +552,17 @@ fun SheetRow(title: String, sub: String = "", danger: Boolean = false, highlight
     }
 }
 
+/**
+ * A picker row that opens a sheet of options.
+ *
+ * The trailing-lambda parameter MUST be last: Kotlin binds `f(a, b) { }` to the final parameter, so putting
+ * `sub` after `onPick` would silently make every call site's lambda a `String`.
+ */
 @Composable
-fun ChoiceRow(title: String, options: List<String>, value: String, onPick: (String) -> Unit) {
+fun ChoiceRow(title: String, options: List<String>, value: String, sub: String = "", onPick: (String) -> Unit) {
     val n = LocalN.current
     var open by remember { mutableStateOf(false) }
-    NRow(title, onClick = { open = true }, trailing = { Text(value.replaceFirstChar { it.uppercase() }, style = NType.label, color = n.dim, maxLines = 1) })
+    NRow(title, sub, onClick = { open = true }, trailing = { Text(value.replaceFirstChar { it.uppercase() }, style = NType.label, color = n.dim, maxLines = 1) })
     if (open) NSheet({ open = false }) {
         NLabel(title, Modifier.padding(bottom = Space.small))
         options.forEach { o -> SheetRow(o.replaceFirstChar { it.uppercase() }, highlight = o == value) { onPick(o); open = false } }
@@ -629,6 +637,71 @@ fun NStat(label: String, value: String, modifier: Modifier = Modifier, valueColo
         NLabel(label)
         Spacer(Modifier.height(5.dp))
         Text(value.uppercase(), style = NType.mono, color = valueColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/**
+ * A hairline slider for a continuous setting. Material's Slider brings its own track, thumb and ripple, all
+ * of which would break the visual language, so this is drawn as a filled/empty hairline pair with a small
+ * square thumb - the same inversion geometry as the chips and the nav bar's active marker.
+ *
+ * Implemented with a plain drag rather than `Modifier.draggable` so the value updates on release, not on
+ * every pixel: a background dim dragged live re-decodes the wallpaper on each frame.
+ */
+@Composable
+fun NSlider(
+    label: String, value: Float, min: Float = 0f, max: Float = 1f, steps: Int = 0,
+    valueLabel: String = "${(value * 100).toInt()}%",
+    modifier: Modifier = Modifier,
+    onChange: (Float) -> Unit,
+) {
+    val n = LocalN.current
+    val tick = rememberTick()
+    val span = (max - min).coerceAtLeast(0.0001f)
+    val frac = ((value - min) / span).coerceIn(0f, 1f)
+    Column(modifier.fillMaxWidth().padding(horizontal = Space.card, vertical = 10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            NLabel(label, Modifier.weight(1f))
+            Text(valueLabel, style = NType.mono, color = n.dim)
+        }
+        Spacer(Modifier.height(10.dp))
+        BoxWithConstraints(Modifier.fillMaxWidth().height(24.dp)) {
+            // Constraints give the track's real width in Dp, so the thumb offset stays in Dp the whole way.
+            val trackW = maxWidth
+            val thumb = 6.dp
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(Radius.control))
+                    .pointerInput(min, max, steps, trackW) {
+                        detectHorizontalDragGestures { change, dragAmount ->
+                            change.consume()
+                            if (size.width <= 0) return@detectHorizontalDragGestures
+                            val perPx = span / size.width
+                            val raw = (value + dragAmount * perPx).coerceIn(min, max)
+                            val snapped = if (steps > 0) {
+                                val stepSize = span / (steps + 1)
+                                min + Math.round((raw - min) / stepSize) * stepSize
+                            } else raw
+                            onChange(snapped.coerceIn(min, max))
+                        }
+                    }
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) { tick() },
+            ) {
+                Box(Modifier.align(Alignment.CenterStart).fillMaxWidth().height(2.dp).background(n.line))
+                Box(Modifier.align(Alignment.CenterStart).fillMaxWidth(frac).height(2.dp).background(n.text))
+                Box(
+                    Modifier
+                        .align(Alignment.CenterStart)
+                        .offset(x = (trackW * frac - thumb / 2).coerceIn(0.dp, trackW - thumb))
+                        .size(thumb)
+                        .background(n.text, RoundedCornerShape(1.dp)),
+                )
+            }
+        }
     }
 }
 

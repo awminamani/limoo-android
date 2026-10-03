@@ -36,13 +36,15 @@ object Ui {
 data class Actions(
     val toggle: () -> Unit, val reconnect: () -> Unit,
     val pasteImport: () -> Unit, val pickFile: () -> Unit, val scan: () -> Unit, val peekClip: () -> ImportPreview?,
-    val share: (servers: List<Server>, name: String, note: String, expiresDays: Int, password: String?, asLink: Boolean) -> Unit,
+    val share: (servers: List<Server>, name: String, note: String, expiresDays: Int, password: String?, asLink: Boolean, withLook: Boolean, withGroup: Boolean) -> Unit,
     /** Copies the plain vless://vmess://trojan://ss:// links for these servers to the clipboard. */
     val copyStandardLinks: (List<Server>) -> Unit,
     val exportBackup: () -> Unit,
     val commitImport: (preview: ImportPreview, chosen: List<Server>, group: String, restoreSettings: Boolean, subName: String) -> Unit,
     val unlock: (preview: ImportPreview, password: String) -> Unit,
     val addSub: (url: String, name: String) -> Unit,
+    /** Opens the system photo picker for a custom app background. No storage permission required. */
+    val pickBackground: () -> Unit = {},
     /** Called with true/false as long work (import, subscription fetch) starts and finishes. */
     val setBusy: (Boolean) -> Unit = {},
 )
@@ -67,6 +69,9 @@ fun LimooRoot(
     var addOpen by remember { mutableStateOf(false) }; var subForm by remember { mutableStateOf(false) }; var manual by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val servers by store.servers.collectAsState()
+    // Read as Compose state, not .value: the background layer depends on it, so a change to the picked
+    // image or the accent has to recompose this scope.
+    val st by store.settings.collectAsState()
     val existingKeys = remember(servers) { servers.map { Store.key(it) }.toSet() }
     val imeUp = WindowInsets.ime.getBottom(LocalDensity.current) > 0
 
@@ -84,7 +89,7 @@ fun LimooRoot(
     // The accent comes from LocalN, which NTheme recomputes from the stored AppSettings.accent, so a
     // change to the setting retints the wallpaper immediately: one source of truth, no restart.
     Box(Modifier.fillMaxSize()) {
-        WallpaperLayers(scrim = if (tab == 0) 0.10f else 0.45f)
+        WallpaperLayers(st, scrim = if (tab == 0) 0.10f else 0.45f)
         Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
             AnimatedVisibility(clipOffer != null) {
                 clipOffer?.let { o ->
@@ -110,6 +115,9 @@ fun LimooRoot(
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 84.dp, start = 24.dp, end = 24.dp)) { d ->
             Snackbar(d, shape = CircleShape, containerColor = n.text, contentColor = n.onText, actionColor = n.accent)
         }
+        // Drawn above everything, and only while a request is actually in flight. Tap-to-hide dismisses the
+        // animation without touching the job. See SubFetchOverlay for why it is driven from the store.
+        SubFetchOverlay(store)
     }
 
     if (addOpen) {

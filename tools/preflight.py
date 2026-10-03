@@ -10,21 +10,26 @@ import os, re, sys, glob, zipfile, subprocess
 
 REPO = os.environ.get("LIMOO_REPO", os.getcwd())
 SDK = os.path.join(os.environ.get("ANDROID_HOME", os.environ.get("ANDROID_SDK_ROOT", "/opt/android-sdk")), "platforms/android-34/android.jar")
+HAVE_SDK = os.path.exists(SDK)
 ROOT = os.path.join(REPO, "app/src/main/java/app/limoo")
 fail = []
+notes = []
 
 # ---- 1. imports ----
-z = zipfile.ZipFile(SDK)
-have = {n[:-6].replace("/", ".") for n in z.namelist() if n.endswith(".class")}
-for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
-    for line in open(f):
-        m = re.match(r"\s*import\s+(android\.[A-Za-z0-9_.]+)", line)
-        if not m: continue
-        fq = m.group(1)
-        if fq in have: continue
-        parts = fq.split(".")
-        if any(".".join(parts[:i]) in have for i in range(len(parts), 2, -1)): continue
-        fail.append(f"unresolvable import {fq}  ({f})")
+if HAVE_SDK:
+    z = zipfile.ZipFile(SDK)
+    have = {n[:-6].replace("/", ".") for n in z.namelist() if n.endswith(".class")}
+    for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
+        for line in open(f):
+            m = re.match(r"\s*import\s+(android\.[A-Za-z0-9_.]+)", line)
+            if not m: continue
+            fq = m.group(1)
+            if fq in have: continue
+            parts = fq.split(".")
+            if any(".".join(parts[:i]) in have for i in range(len(parts), 2, -1)): continue
+            fail.append(f"unresolvable import {fq}  ({f})")
+else:
+    notes.append("android.jar not found - skipped the import-resolution and SDK-method checks (CI has the SDK)")
 
 # ---- 2. SDK methods we rely on ----
 REQUIRED = {
@@ -36,14 +41,15 @@ REQUIRED = {
     "android.app.Notification$Action$Builder": [],
 }
 import tempfile, subprocess as sp
-tmp = tempfile.mkdtemp()
-sp.run(["unzip", "-q", "-o", SDK, "-d", tmp], check=True)
-for cls, methods in REQUIRED.items():
-    path = cls.replace(".", "/")
-    out = sp.run(["javap", "-cp", tmp, cls], capture_output=True, text=True).stdout
-    for m in methods:
-        if f"{m}(" not in out:
-            fail.append(f"{cls} has no method {m}")
+if HAVE_SDK:
+    tmp = tempfile.mkdtemp()
+    sp.run(["unzip", "-q", "-o", SDK, "-d", tmp], check=True)
+    for cls, methods in REQUIRED.items():
+        path = cls.replace(".", "/")
+        out = sp.run(["javap", "-cp", tmp, cls], capture_output=True, text=True).stdout
+        for m in methods:
+            if f"{m}(" not in out:
+                fail.append(f"{cls} has no method {m}")
 # setContentView must NOT be used - it does not exist
 for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
     for i, line in enumerate(open(f), 1):
@@ -61,7 +67,10 @@ def bal(s):
 # ---- 4. positional args on our own composables ----
 sigs = {"NSpinner": 4, "NBusy": 3, "NBusyBlock": 2, "NRule": 2, "NBrackets": 3, "NStat": 4,
         "NDots": 3, "SubAllowance": 6, "DotTextFixed": 6, "DotText": 6, "NGlyph": 4,
-        "NReadout": 5, "NFadeDots": 3, "NDotsProgress": 4}
+        "NReadout": 5, "NFadeDots": 3, "NDotsProgress": 4,
+        # onPick/onChange are lambda parameters: a 4th POSITIONAL arg there is a type error, because the
+        # call site meant a trailing lambda. The optional `sub` must be passed by name.
+        "ChoiceRow": 4, "NSlider": 6, "NRow": 3, "NButton": 7}
 for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
     for i, line in enumerate(open(f), 1):
         for name, mx in sigs.items():
@@ -267,19 +276,17 @@ if os.path.exists(f"{_wp}/limoo_accent_mask.png"):
     except ImportError:
         pass
 
-# ---- 14c. swipe rows must use SwipeActionRow, not the dismiss box ----
-# The One UI swipe replaced SwipeToDismissBox, which flicks the row away and cannot be recovered from.
-_sv = os.path.join(ROOT, "ui/Servers.kt")
+# ---- 14c. the swipe gesture is gone for good ----
+# The user removed it: a swipe on a server row deleted servers by accident and the row-menu already
+# carries Share and Delete. Keep SwipeRow.kt deleted and keep every gesture handler out of the list.
+_sv = os.path.join(ROOT, "ui/SwipeRow.kt")
 if os.path.exists(_sv):
-    _body = strip_comments(open(_sv).read())
-    if "SwipeToDismiss" in _body:
-        fail.append(f"{_sv}: SwipeToDismissBox is gone - use SwipeActionRow (One UI resistance + snap)")
-    if "SwipeActionRow" not in _body:
-        fail.append(f"{_sv}: server rows should use SwipeActionRow")
-    # Share replaced Favourite on swipe, so the share sheet must offer the raw vless:// link too.
-    _sh = os.path.join(ROOT, "ui/Sheets.kt")
-    if os.path.exists(_sh) and "copyStandardLinks" not in strip_comments(open(_sh).read()):
-        fail.append(f"{_sh}: share sheet should offer the standard vless:// link (copyStandardLinks)")
+    fail.append(f"{_sv}: the swipe row was removed - do not bring it back; Share/Delete live in the row menu")
+for _f in _g.glob(os.path.join(ROOT, "**/*.kt"), recursive=True):
+    _b = strip_comments(open(_f).read())
+    for _m in re.finditer(r"\b(SwipeActionRow|SwipeToDismiss\w*|SwipeRow)\b", _b):
+        line_no = _b[:_m.start()].count("\n") + 1
+        fail.append(f"{_f}:{line_no} references {_m.group(1)} - swipe is removed, use the row menu")
 
 # ---- 14d. thin wrappers must forward every named parameter their callers use ----
 # WallpaperLayers forgot to forward `scrim`, and the build only failed at the call site. Compare the
@@ -525,5 +532,37 @@ if os.path.exists(W):
         for m in re.finditer(r"\.background\(ImageProvider\([^)]*\)\s*,\s*ColorFilter", body):
             fail.append(f"{W}: background(ImageProvider, ColorFilter) needs `colorFilter =` named - the 2nd positional arg is contentScale")
 
+# ---- 16. a function-typed parameter must be last if call sites use a trailing lambda ----
+# Kotlin binds `f(a, b) { ... }` to the FINAL parameter. Adding an optional parameter after a lambda one
+# (ChoiceRow gaining `sub`, NSlider gaining `modifier`) therefore turns every existing call site into a
+# type error, and the caret points at the call rather than the signature. This bit us twice in one session.
+_KT_ALL = {f: strip_comments(open(f).read()) for f in _g.glob(os.path.join(ROOT, "**/*.kt"), recursive=True)}
+_sig = re.compile(r"\bfun\s+(?:<[^>]*>\s*)?(\w+)\s*\(([^)]*)\)")
+for _f, _b in _KT_ALL.items():
+    for _m in _sig.finditer(_b):
+        _name, _params = _m.group(1), _m.group(2)
+        # Split the parameter list at top-level commas only (default values contain commas).
+        _parts, _cur, _d = [], "", 0
+        for _ch in _params:
+            if _ch in "([{<": _d += 1
+            elif _ch in ")]}>": _d -= 1
+            if _ch == "," and _d == 0:
+                _parts.append(_cur); _cur = ""
+            else:
+                _cur += _ch
+        if _cur.strip(): _parts.append(_cur)
+        _parts = [p.strip() for p in _parts if p.strip()]
+        if len(_parts) < 2: continue
+        last_fn = max((i for i, p in enumerate(_parts) if "->" in p or ": Modifier.() ->" in p), default=-1)
+        if last_fn < 0: continue
+        if last_fn != len(_parts) - 1:
+            line_no = _b[:_m.start()].count("\n") + 1
+            fail.append(
+                f"{_f}:{line_no} {_name}() declares a non-lambda parameter AFTER its lambda parameter - "
+                "every trailing-lambda call site would break; move it before"
+            )
+
+for line in notes:
+    print(f"preflight note: {line}")
 print("\n".join(fail) if fail else "preflight: all checks passed")
 sys.exit(1 if fail else 0)

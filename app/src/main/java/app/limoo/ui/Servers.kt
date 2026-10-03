@@ -33,32 +33,31 @@ import kotlinx.coroutines.launch
 @Composable
 private fun ServerRow(
     s: Server, active: Boolean, picked: Boolean, selecting: Boolean, testing: Boolean, privacy: Boolean,
-    onClick: () -> Unit, onLong: () -> Unit, onMenu: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit,
+    onClick: () -> Unit, onLong: () -> Unit, onMenu: () -> Unit,
 ) {
     val n = LocalN.current
-    // One UI style swipe: 1:1 to a threshold, then resistance, then arm + snap. Share right, Delete left.
-    SwipeActionRow(onShare = onShare, onDelete = onDelete, enabled = !selecting) {
-        NCard(Modifier.fillMaxWidth(), onClick = onClick, onLongClick = onLong, highlight = picked) {
-            Row(Modifier.padding(start = Space.standard, end = Space.micro, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (selecting) NCheck(picked) else NRadio(active)
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(s.name, style = NType.body, color = n.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        "${s.protocol} - ${s.network} - ${s.security}".uppercase() + "  " + mask("${s.host}:${s.port}", privacy),
-                        style = NType.label, color = n.dim, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp),
-                    )
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    DotMeter(s.pingMs, testing)
-                    Text(
-                        when { testing -> "..."; s.pingMs > 0 -> "${s.pingMs} ms"; s.pingMs == 0L -> "Timeout"; else -> "" },
-                        style = NType.micro,
-                        color = if (s.pingMs == 0L) n.accent else n.muted, modifier = Modifier.padding(top = 5.dp),
-                    )
-                }
-                if (!selecting) MenuMark(onMenu) else Spacer(Modifier.width(Space.small))
+    // No swipe. The row is a plain tappable line: tap selects, long-press enters multi-select, and the
+    // overflow mark opens the same actions the swipe used to carry (share, delete, edit, duplicate).
+    NCard(Modifier.fillMaxWidth(), onClick = onClick, onLongClick = onLong, highlight = picked) {
+        Row(Modifier.padding(start = Space.standard, end = Space.micro, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (selecting) NCheck(picked) else NRadio(active)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(s.name, style = NType.body, color = n.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    "${s.protocol} - ${s.network} - ${s.security}".uppercase() + "  " + mask("${s.host}:${s.port}", privacy),
+                    style = NType.label, color = n.dim, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp),
+                )
             }
+            Column(horizontalAlignment = Alignment.End) {
+                DotMeter(s.pingMs, testing)
+                Text(
+                    when { testing -> "..."; s.pingMs > 0 -> "${s.pingMs} ms"; s.pingMs == 0L -> "Timeout"; else -> "" },
+                    style = NType.micro,
+                    color = if (s.pingMs == 0L) n.accent else n.muted, modifier = Modifier.padding(top = 5.dp),
+                )
+            }
+            if (!selecting) MenuMark(onMenu) else Spacer(Modifier.width(Space.small))
         }
     }
 }
@@ -76,7 +75,6 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit, busy: String? = n
     var editing by remember { mutableStateOf<Server?>(null) }; var qr by remember { mutableStateOf<Server?>(null) }
     var subsOpen by remember { mutableStateOf(false) }; var shareList by remember { mutableStateOf<List<Server>?>(null) }
     var groupFor by remember { mutableStateOf<Set<String>?>(null) }; var confirmWipe by remember { mutableStateOf(false) }
-    var refreshingSubs by remember { mutableStateOf(false) }
     val selecting = picked.isNotEmpty()
     BackHandler(selecting) { picked = emptySet() }
 
@@ -115,9 +113,6 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit, busy: String? = n
                     NButton(if (st.realPing) "Ping" else "TCP", { scope.launch { store.pingAll(visible.map { it.id }, real = st.realPing) } }, compact = true); Spacer(Modifier.width(Space.compact))
                     NButton("Tools", { moreOpen = true }, compact = true)
                 }
-            }
-            if (refreshingSubs || busy != null) {
-                BusyRow(busy ?: "Updating subscriptions"); Spacer(Modifier.height(4.dp))
             }
             // Subscription allowances (data used / total, days left) stay pinned here instead of only inside
             // group headers, where they disappeared as soon as the user searched or changed the sort.
@@ -183,8 +178,6 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit, busy: String? = n
                             onClick = { if (selecting) picked = if (s.id in picked) picked - s.id else picked + s.id else store.select(s.id) },
                             onLong = { picked = if (s.id in picked) picked - s.id else picked + s.id },
                             onMenu = { rowMenu = s },
-                            onShare = { shareList = listOf(s) },
-                            onDelete = { deleteWithUndo(setOf(s.id)) },
                         )
                     }
                 }
@@ -231,7 +224,10 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit, busy: String? = n
         Spacer(Modifier.height(Space.compact))
         SheetRow("Select best server", if (st.realPing) "REAL DELAY - SLOWER" else "TCP LATENCY") { moreOpen = false; scope.launch { store.autoSelectBest(real = st.realPing); Ui.say("BEST SERVER SELECTED") } }
         SheetRow("Sort", st.sortBy) { moreOpen = false; sortOpen = true }
-        SheetRow("Update subscriptions") { moreOpen = false; refreshingSubs = true; scope.launch { store.refreshAll(force = true); refreshingSubs = false; Ui.say("SUBSCRIPTIONS UPDATED") } }
+        // No local "refreshing" flag: store.refreshAll increments the store's own fetch counter, which is what
+        // drives the waiting overlay. A screen-local spinner would appear before the request and sit under the
+        // sheet, which is exactly the behaviour SubFetchOverlay replaced.
+        SheetRow("Update subscriptions") { moreOpen = false; scope.launch { store.refreshAll(force = true); Ui.say("SUBSCRIPTIONS UPDATED") } }
         SheetRow("Manage subscriptions") { moreOpen = false; subsOpen = true }
         SheetRow("Select all") { moreOpen = false; picked = servers.map { it.id }.toSet() }
         SheetRow("Remove duplicates") { moreOpen = false; val c = store.removeDuplicates(); Ui.say(if (c == 0) "NO DUPLICATES" else "REMOVED $c") }

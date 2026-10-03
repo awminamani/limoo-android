@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -23,11 +24,13 @@ import app.limoo.LimooApp
 import app.limoo.Store
 import app.limoo.core.GeoManager
 import app.limoo.core.LimooVpnService
+import app.limoo.core.SubUpdateWorker
 import app.limoo.format.ImportPreview
 import app.limoo.format.Importer
 import app.limoo.format.LimooFile
-import app.limoo.format.LinkBuilder
 import app.limoo.format.LimooPayload
+import app.limoo.format.LinkBuilder
+import app.limoo.model.AppSettings
 import app.limoo.model.Server
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
@@ -47,6 +50,23 @@ class MainActivity : ComponentActivity() {
     private val scanner = registerForActivityResult(ScanContract()) { r -> r.contents?.let { open(it, "QR") } }
     private val notifPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
+    /**
+     * Android's photo picker. Chosen over `ACTION_GET_CONTENT` + READ_MEDIA_IMAGES because it needs **no
+     * storage permission at all** on any API level, which keeps the manifest free of a broad permission the
+     * user would have to grant for a wallpaper.
+     *
+     * The grant is made persistable anyway: the returned URI would otherwise stop resolving after a reboot,
+     * leaving the user with an invisible background they cannot clear from inside the app.
+     */
+    private val bgPicker = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        runCatching {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        store.update { it.copy(bgSource = uri.toString(), bgDim = it.defaultDimForCustom()) }
+        Ui.say("BACKGROUND SET")
+    }
+
     private val actions by lazy {
         Actions(
             toggle = ::toggle, reconnect = ::reconnect,
@@ -56,6 +76,9 @@ class MainActivity : ComponentActivity() {
             share = ::share, exportBackup = ::exportBackup,
             commitImport = ::commit, unlock = { p, pw -> open(p.raw, p.source, pw) },
             addSub = ::addSub, setBusy = ::setBusy, copyStandardLinks = ::copyStandardLinks,
+            pickBackground = {
+                bgPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
         )
     }
 
@@ -65,7 +88,8 @@ class MainActivity : ComponentActivity() {
         handle(intent)
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
             notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        // First open downloads geoip/geosite; later opens refresh weekly. Subscriptions refresh when older than 6 hours.
+        // First open downloads geoip/geosite; later opens refresh weekly. Subscriptions refresh on their own
+        // schedule via SubUpdateWorker - this launch-time pass only catches up a list that is already overdue.
         lifecycleScope.launch {
             val st = store.settings.value
             GeoManager.ensure(applicationContext, st.geoSource, if (st.geoAutoUpdate) 7 else Long.MAX_VALUE)
@@ -85,6 +109,9 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    /** Writes any debounced state change straight to disk before the process can be killed. */
+    override fun onStop() { super.onStop(); store.flush() }
 
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); handle(intent) }
 
@@ -130,11 +157,11 @@ class MainActivity : ComponentActivity() {
 
     private fun commit(p: ImportPreview, chosen: List<Server>, group: String, restore: Boolean, subName: String) {
         preview = null; clipOffer = null; dismissedClips += p.raw.hashCode()
-        val work = p.subUrls.isNotEmpty()
-        setBusy(work)
-        val added = store.addServers(chosen.map { if (group.isNotEmpty() && it.group.isEmpty()) it.copy(group = group) else it })
-        if (restore) p.settings?.let { s -> store.update { s } }
-        if (work) lifecycleScope.launch { delay(120); setBusy(false) }   // subscription fetches continue in background
+        val groupToUse = group.ifBlank { p.group }
+        val added = store.addServers(chosen.map { if (groupToUse.isNotEmpty() && it.group.isEmpty()) it.copy(group = groupToUse) else it })
+        if (restore) p.settings?.let { s -> applySettings(s) }
+        // A v2 file can carry just the look (theme/accent/dim) without the sender's whole configuration.
+        p.appearance?.let { applySettings(LimooFile.appearancePatch(LimooPayload(appearance = it))!!) }
         p.subUrls.forEach { u -> addSub(u, if (p.subUrls.size == 1) subName else "") }
         when {
             added.isNotEmpty() -> { val ids = added.map { it.id }.toSet(); Ui.say("IMPORTED ${added.size}", "UNDO") { store.removeMany(ids) } }
@@ -142,18 +169,26 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Applies a settings block and re-arms the auto-update job, which depends on two of its fields. */
+    private fun applySettings(s: AppSettings) {
+        store.update { s }
+        SubUpdateWorker.sync(applicationContext, store.settings.value)
+    }
+
     private fun addSub(url: String, name: String) {
         lifecycleScope.launch {
-            setBusy(true)
-            runCatching { store.addSubscription(url, name) }.onSuccess { Ui.say("SUBSCRIPTION ADDED - $it SERVERS") }.onFailure { Ui.say("SUBSCRIPTION FAILED: ${it.message}") }
-            setBusy(false)
+            // No setBusy here: the waiting overlay is driven by the store's own fetch counter, so it appears
+            // for this and for the periodic worker alike, and it disappears on its own when the fetch ends.
+            runCatching { store.addSubscription(url, name) }
+                .onSuccess { Ui.say("SUBSCRIPTION ADDED - $it SERVERS") }
+                .onFailure { Ui.say("SUBSCRIPTION FAILED: ${it.message}") }
         }
     }
 
     /**
-     * Marks long work (import, subscription fetch) so the UI can show progress. Reference-counted because an
-     * import can kick off several subscriptions at once; without counting, the first to finish would hide the
-     * spinner while the others are still running.
+     * Marks long work (import) so the UI can show progress. Reference-counted because an import can kick off
+     * several subscriptions at once; without counting, the first to finish would hide the spinner while the
+     * others are still running.
      */
     private fun setBusy(on: Boolean) { busyCount = (busyCount + if (on) 1 else -1).coerceAtLeast(0) }
 
@@ -167,17 +202,23 @@ class MainActivity : ComponentActivity() {
         Ui.say(if (servers.size == 1) "LINK COPIED" else "${servers.size} LINKS COPIED")
     }
 
-    private fun share(servers: List<Server>, name: String, note: String, days: Int, pw: String?, asLink: Boolean) {
+    private fun share(servers: List<Server>, name: String, note: String, days: Int, pw: String?, asLink: Boolean, withLook: Boolean, withGroup: Boolean) {
         if (servers.isEmpty()) return Ui.say("NOTHING TO SHARE")
+        // A shared config carries the sender's look and their group name, but NOT their chosen image: a
+        // content:// URI is meaningless on another device.
         send(LimooPayload(
-            name = name.ifBlank { "Limoo servers" }, note = note, expires = if (days > 0) System.currentTimeMillis() / 1000 + days * 86_400L else 0,
+            name = name.ifBlank { "Limoo servers" }, note = note,
+            expires = if (days > 0) System.currentTimeMillis() / 1000 + days * 86_400L else 0,
             servers = servers.map { it.copy(pingMs = -1, fav = false, lastUsed = 0, subId = "") },
+            appearance = if (withLook) LimooFile.appearanceOf(store.settings.value) else null,
+            group = if (withGroup) servers.firstOrNull()?.group ?: "" else "",
         ), pw, asLink)
     }
 
     private fun exportBackup() = send(LimooPayload(
         name = "Limoo backup", servers = store.servers.value.map { it.copy(pingMs = -1) },
         subscriptions = store.subs.value.map { it.url }, settings = store.settings.value,
+        appearance = LimooFile.appearanceOf(store.settings.value),
     ), null, false)
 
     private fun send(payload: LimooPayload, pw: String?, asLink: Boolean) {
