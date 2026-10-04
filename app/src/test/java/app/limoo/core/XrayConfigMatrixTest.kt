@@ -39,7 +39,12 @@ class XrayConfigMatrixTest {
     ) = Server(
         name = "matrix", protocol = protocol, host = "example.com", port = 443,
         uuid = "11111111-1111-1111-1111-111111111111",
-        network = network, security = security, flow = flow, method = method,
+        network = network, security = security, flow = flow,
+        // Shadowsocks REQUIRES a cipher; an empty method makes the core reject the config outright
+        // ("invalid shadowsocks method"). A real ss:// link always carries one, so the fixture must too -
+        // the first matrix run failed 5/5 shadowsocks configs for exactly this reason, which is the
+        // validator doing its job.
+        method = method.ifEmpty { if (protocol == "shadowsocks") "aes-256-gcm" else "" },
         // REALITY-specific values that are valid regardless of the rest of the combination.
         sni = "example.com", pbk = "xTIBA5rboUvnH4htWjbxbHFi_zx3Cx96wVvEnntVJykw", sid = "0123456789abcdef",
         fp = "chrome", path = "/ws", serviceName = "svc", hostHeader = "example.com",
