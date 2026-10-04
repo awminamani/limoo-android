@@ -55,7 +55,9 @@ class XrayConfigMatrixTest {
     private fun srv(
         protocol: String = "vless",
         network: String = "tcp",
-        security: String = "none",
+        // TLS by default, deliberately. vless+none is rejected by the core in v26, and a default that
+        // is invalid makes every bare srv() call a trap - it cost three matrix runs to notice.
+        security: String = "tls",
         flow: String = "",
         method: String = "",
     ) = Server(
@@ -135,11 +137,11 @@ class XrayConfigMatrixTest {
             "blockAds" to { b: Boolean -> st(blockAds = b) },
             "tun" to { b: Boolean -> st(tun = b) },
         )
-        // fragment needs a TLS server for dialerProxy to be written at all, so it is paired with one.
+        // fragment needs a TLS server for dialerProxy to be written at all; srv() now defaults to TLS, so it
+        // needs no special case here.
         for ((name, mk) in toggles) {
-            val server = if (name == "fragment") srv(security = "tls") else srv()
             for (on in listOf(false, true)) {
-                write("t-${name}-${if (on) "on" else "off"}.json", XrayConfigBuilder.build(server, mk(on)))
+                write("t-${name}-${if (on) "on" else "off"}.json", XrayConfigBuilder.build(srv(), mk(on)))
                 n++
             }
         }
@@ -154,9 +156,10 @@ class XrayConfigMatrixTest {
 
         // ---- probe configs ----
         // buildProbe is a DIFFERENT config shape, and it had its own copy of the bug.
+        // vless+none is invalid in v26 (see supported()), so the fixture is TLS - the same setting
+        // fragment needs anyway, which is why they can share one server.
         for ((name, mk) in toggles) {
-            val server = if (name == "fragment") srv(security = "tls") else srv()
-            write("probe-${name}.json", XrayConfigBuilder.buildProbe(server, mk(true)))
+            write("probe-${name}.json", XrayConfigBuilder.buildProbe(srv(security = "tls"), mk(true)))
             n++
         }
 
