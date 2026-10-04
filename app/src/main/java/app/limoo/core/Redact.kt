@@ -1,7 +1,10 @@
 package app.limoo.core
 
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 
 /**
@@ -44,20 +47,28 @@ object Redact {
             .getOrDefault(text)
     }
 
+    /**
+     * Recurses into BOTH objects and arrays.
+     *
+     * This is where the first version of this was wrong, and it mattered: an Xray config nests the UUID
+     * inside `users: [ { "id": ... } ]`, and realitySettings inside a streamSettings object. Walking only
+     * JsonObject left every array untouched, so the single most important secret - the user id - was never
+     * visited, and the tests caught it. Recursing into arrays as well as objects is the whole fix.
+     */
     private fun walk(o: JsonObject, privateMode: Boolean): JsonObject =
-        JsonObject(o.mapValues { (k, v) ->
-            val child = v as? JsonObject
-            when {
-                child != null -> walk(child, privateMode)
-                k in SECRET_KEYS -> jsonPrimitiveOf(MASK)
-                privateMode && k in ADDRESS_KEYS -> jsonPrimitiveOf(MASK)
-                // A user rule list can carry geo references, which are not secrets, but a custom rule
-                // can also name a domain the user browses to. Left alone unless private mode.
-                else -> v
-            }
-        })
+        JsonObject(o.mapValues { (k, v) -> walkValue(k, v, privateMode) })
 
-    private fun jsonPrimitiveOf(s: String) = kotlinx.serialization.json.JsonPrimitive(s)
+    private fun walkValue(key: String, value: JsonElement, privateMode: Boolean): JsonElement = when (value) {
+        is JsonObject -> walk(value, privateMode)
+        is JsonArray -> JsonArray(value.map { walkValue("", it, privateMode) })
+        else -> when {
+            key in SECRET_KEYS -> JsonPrimitive(MASK)
+            privateMode && key in ADDRESS_KEYS -> JsonPrimitive(MASK)
+            // A geo reference is not a secret, and masking geosite:cn would make the output useless for
+            // diagnosing a routing problem. Left alone unless privacy mode asks for hosts too.
+            else -> value
+        }
+    }
 
     /**
      * Strip credentials out of a subscription URL so it can be logged or shown safely.
