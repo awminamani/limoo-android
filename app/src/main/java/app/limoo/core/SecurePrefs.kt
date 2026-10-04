@@ -18,6 +18,16 @@ import javax.crypto.spec.GCMParameterSpec
  * - If the keystore is unavailable, writes fall back to plain text rather than losing data.
  * - If a value cannot be decrypted (e.g. restored onto another device by Auto Backup), the blob is kept
  *   under `<key>.unreadable` and the default is returned. Use Limoo's own Export backup to move devices.
+ *
+ * DATA LOSS THIS PREVENTS
+ *
+ * If decryption fails, getString returns the default - `"[]"` for the server list - and the app loads an
+ * EMPTY list. That looked harmless, and was the opposite: the next persist() wrote that empty list back,
+ * REPLACING a valid encrypted blob with `enc1:` + base64("[]"). One failed decryption destroyed every
+ * server the user had, and the `.unreadable` copy was the only remaining trace.
+ *
+ * So a key that failed to decrypt is recorded in [unreadable] and REFUSES to be written until the user
+ * deals with it. "We could not read your data" must never quietly become "your data is gone".
  */
 class SecurePrefs private constructor(private val base: SharedPreferences, private val secure: Set<String>) : SharedPreferences {
     companion object {
@@ -27,6 +37,30 @@ class SecurePrefs private constructor(private val base: SharedPreferences, priva
     }
 
     @Volatile private var cached: SecretKey? = null
+
+    /**
+     * Keys whose blob exists but could not be decrypted. While a key is in here, writes to it are
+     * REFUSED - see [Ed.putString]. Cleared only by an explicit reset or a successful read.
+     */
+    private val unreadable = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    /** True while any protected key is known-unreadable, i.e. the user must be warned. */
+    val hasUnreadable: Boolean get() = unreadable.isNotEmpty()
+
+    /** Which keys are currently known-unreadable, for a specific banner instead of a generic one. */
+    fun unreadableKeys(): Set<String> = synchronized(unreadable) { unreadable.toSet() }
+
+    /**
+     * Drop the unreadable blob for a key and let the caller decide what happens next.
+     *
+     * This is the escape hatch the UI needs: "my saved servers could not be decrypted" is only useful if
+     * the user can choose to discard it deliberately. Called by an explicit user action, never by a
+     * failed read.
+     */
+    fun clearUnreadable(key: String) {
+        unreadable.remove(key)
+        base.edit().remove("$key.unreadable").apply()
+    }
 
     private fun key(): SecretKey {
         cached?.let { return it }
@@ -62,7 +96,13 @@ class SecurePrefs private constructor(private val base: SharedPreferences, priva
         val v = base.getString(key, null) ?: return defValue
         if (!v.startsWith(PREFIX)) return v
         val plain = decrypt(v)
-        if (plain == null) base.edit().putString("$key.unreadable", v).apply()
+        if (plain == null) {
+            // Preserve the blob AND refuse future writes to this key. Previously only the blob was kept,
+            // so the next save destroyed it.
+            base.edit().putString("$key.unreadable", v).apply()
+            unreadable.add(key)
+            Crash.log("secure prefs: '$key' could not be decrypted; writes refused", null)
+        }
         return plain ?: defValue
     }
 
@@ -81,6 +121,13 @@ class SecurePrefs private constructor(private val base: SharedPreferences, priva
 
     private inner class Ed(private val e: SharedPreferences.Editor) : SharedPreferences.Editor {
         override fun putString(key: String?, value: String?): SharedPreferences.Editor {
+            if (key != null && key in secure && key in unreadable) {
+                // Writing here would overwrite an undecryptable blob with whatever the app currently
+                // holds - and what the app holds, right now, is a DEFAULT, not the user's data. Refusing
+                // keeps the original recoverable via .unreadable until the user chooses to discard it.
+                Crash.log("secure prefs: refused write to unreadable key '$key'", null)
+                return this
+            }
             val out = if (value != null && key != null && key in secure) encrypt(value) ?: value else value
             e.putString(key, out); return this
         }
