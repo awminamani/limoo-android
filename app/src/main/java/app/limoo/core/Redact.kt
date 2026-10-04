@@ -62,8 +62,12 @@ object Redact {
     /**
      * Strip credentials out of a subscription URL so it can be logged or shown safely.
      *
-     * Keeps host, path shape and the query's other keys, so the line is still useful for diagnosis:
-     * `https://provider.example/sub/abcdef123456?token=x` -> `https://provider.example/sub/***`.
+     * Keeps host and path shape so the line is still useful for diagnosis: the example
+     * https://provider.example/sub/abcdef123456?token=x becomes https://provider.example/sub/MASKED.
+     *
+     * (The masked form is spelled out in words rather than literally, because a literal contains a slash
+     * followed by asterisks - which Kotlin reads as the start of a nested comment and swallows the rest of
+     * the file.)
      *
      * If the URL cannot be parsed it is replaced wholesale rather than passed through - a malformed string
      * in this position is more likely to be a pasted secret than a typo.
