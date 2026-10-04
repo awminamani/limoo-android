@@ -124,14 +124,28 @@ object XrayConfigBuilder {
             })
             put("sniffing", sniff(st))
         })
-        val listen = if (st.allowLan) "0.0.0.0" else "127.0.0.1"
-        add(buildJsonObject {
-            put("tag", "socks"); put("listen", listen); put("port", st.socksPort); put("protocol", "socks")
-            put("settings", buildJsonObject { put("udp", true); put("auth", "noauth") }); put("sniffing", sniff(st))
-        })
-        add(buildJsonObject {
-            put("tag", "http"); put("listen", listen); put("port", st.httpPort); put("protocol", "http"); put("sniffing", sniff(st))
-        })
+        // A SOCKS/HTTP inbound with no authentication is a hole: any app on the phone can connect to
+        // the tunnel and use the user's connection as its own exit, bypassing per-app rules, and any
+        // app can probe 10808/10809 to detect that a proxy tool is installed at all. It is also a
+        // startup failure waiting to happen - another proxy app already holding the port makes the
+        // core refuse to start at all.
+        //
+        // In VPN mode the tun IS the tunnel and nothing needs those ports, so they are omitted unless
+        // the user explicitly asks for them. Proxy-only mode keeps them: that mode exists to serve
+        // them, and with nothing to configure the app would be useless.
+        //
+        // LAN sharing (allowLan -> 0.0.0.0) is deliberately NOT changed here.
+        val wantLocal = !tun || st.localProxyPorts
+        if (wantLocal) {
+            val listen = if (st.allowLan) "0.0.0.0" else "127.0.0.1"
+            add(buildJsonObject {
+                put("tag", "socks"); put("listen", listen); put("port", st.socksPort); put("protocol", "socks")
+                put("settings", buildJsonObject { put("udp", true); put("auth", "noauth") }); put("sniffing", sniff(st))
+            })
+            add(buildJsonObject {
+                put("tag", "http"); put("listen", listen); put("port", st.httpPort); put("protocol", "http"); put("sniffing", sniff(st))
+            })
+        }
     }
 
     /**

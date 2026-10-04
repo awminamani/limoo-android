@@ -46,6 +46,15 @@ data class AppSettings(
     val mode: String = "vpn",                        // vpn | proxy (local SOCKS/HTTP only)
     val mtu: Int = 1500, val ipv6: Boolean = false, val vpnDns: String = "1.1.1.1",
     val socksPort: Int = 10808, val httpPort: Int = 10809, val allowLan: Boolean = false,
+    /**
+     * Open the unauthenticated SOCKS/HTTP inbounds even in VPN mode.
+     *
+     * Default false on purpose: in VPN mode the tun is the tunnel, so those ports serve nothing while
+     * letting any installed app use the connection as its own exit and letting any app detect that a
+     * proxy tool is present. Proxy-only mode always opens them - that mode exists to serve them.
+     * Persisted with a default, so existing installs keep whatever they had (false) without a migration.
+     */
+    val localProxyPorts: Boolean = false,
     // endpoint-independent NAT: without it, QUIC/UDP dies behind the tunnel. Real, not cosmetic.
     val endpointIndependentNat: Boolean = true,
     // dns

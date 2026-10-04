@@ -148,6 +148,7 @@ private fun Tile(label: String, value: String, active: Boolean, modifier: Modifi
 
 @Composable
 fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: () -> Unit, busy: String? = null) {
+    val ctx = LocalContext.current
     val n = LocalN.current
     val servers by store.servers.collectAsState()
     val selId by store.selectedId.collectAsState()
@@ -163,7 +164,16 @@ fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: ()
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val (traffic, exactTraffic) = rememberTraffic(on)
 
-    suspend fun runTest() { testing = true; realMs = Latency.viaProxy(st.socksPort, st.testUrl, st.pingTimeoutMs * 2); testing = false }
+    // Measured through the running core, not through the local SOCKS port. The SOCKS inbound is now
+    // omitted in VPN mode unless the user asks for it, so depending on st.socksPort here would make
+    // the real-delay test fail on every default install. The core's own probe needs no listening port.
+    suspend fun runTest() {
+        val s = sel ?: return
+        testing = true
+        realMs = Latency.real(ctx, s, st, st.testUrl).takeIf { it > 0 }
+            ?: Latency.tcp(s, st.pingTimeoutMs).takeIf { it > 0 }
+        testing = false
+    }
     LaunchedEffect(on, sel?.id) { realMs = null; if (on) { delay(1500); runTest() } }
     LaunchedEffect(on) { if (!on) return@LaunchedEffect; while (true) { now = System.currentTimeMillis(); delay(1000) } }
 

@@ -110,6 +110,9 @@ fun SettingsScreen(store: Store, a: Actions) {
                 NumberRow("Ping timeout (ms)", st.pingTimeoutMs) { v -> upd { it.copy(pingTimeoutMs = v.coerceIn(500, 20000)) } }
                 NumberRow("MTU", st.mtu) { v -> upd { it.copy(mtu = v.coerceIn(576, 9000)) } }
                 FieldRow("VPN DNS", st.vpnDns) { v -> upd { it.copy(vpnDns = v) } }
+                NLabel("LOCAL PROXY", Modifier.padding(start = Space.card, end = Space.card, top = Space.compact))
+                ToggleRow("Expose SOCKS/HTTP ports", st.localProxyPorts, "OFF BY DEFAULT IN VPN MODE") { v -> upd { it.copy(localProxyPorts = v) } }; NDivider()
+                NLabel("IN VPN MODE THE TUN IS THE TUNNEL, SO THESE PORTS SERVE NOTHING. LEAVING THEM OPEN LETS ANY INSTALLED APP USE YOUR CONNECTION AS ITS OWN EXIT.", Modifier.padding(horizontal = Space.card))
                 NumberRow("SOCKS port", st.socksPort) { v -> upd { it.copy(socksPort = v.coerceIn(1, 65535)) } }
                 NumberRow("HTTP port", st.httpPort) { v -> upd { it.copy(httpPort = v.coerceIn(1, 65535)) } }
             }
