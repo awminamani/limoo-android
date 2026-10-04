@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -20,11 +21,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.limoo.Store
+import app.limoo.core.ErrorHints
 import app.limoo.core.GeoManager
 import app.limoo.core.Latency
 import app.limoo.core.LimooVpnService
@@ -168,6 +172,8 @@ fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: ()
         if (on) Ui.say("$msg - takes effect on reconnect", "Reconnect") { a.reconnect() }
     }
 
+    val clipboard = LocalClipboardManager.current
+
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Space.card),
     ) {
@@ -194,7 +200,45 @@ fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: ()
             when (state) {
                 State.Connected -> Text(fmtUptime(now - since), style = NType.mono.copy(fontSize = 20.sp), color = n.text)
                 State.Connecting -> Text("Negotiating", style = NType.body, color = n.dim)
-                State.Error -> Text((error ?: "Failed").take(120), style = NType.bodySmall, color = n.accent, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                State.Error -> {
+                    // The old code did Text((error ?: "Failed").take(120)), which cut the message at
+                    // exactly the character where the cause begins - the reported error ended
+                    // "...with tag dire" and the actual reason ("unsupported domain strategy:
+                    // IPIfNonMatch") sat just past the cut. Nothing is truncated now: a short hint the
+                    // user can act on, then the FULL raw text, selectable and copyable.
+                    val hint = ErrorHints.forError(error)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            hint?.title ?: (error ?: "Failed").lineSequence().firstOrNull { it.isNotBlank() } ?: "Failed",
+                            style = NType.body, color = n.accent,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        )
+                        if (hint != null) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                hint.detail, style = NType.bodySmall, color = n.muted,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        NRow(
+                            "COPY ERROR",
+                            "SELECTABLE DETAILS BELOW",
+                            {
+                                clipboard.setText(AnnotatedString(error ?: "Failed"))
+                                Ui.say("COPIED")
+                            },
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        SelectionContainer {
+                            Text(
+                                error ?: "Failed",
+                                style = NType.mono.copy(fontSize = 10.sp), color = n.muted,
+                                modifier = Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState()),
+                            )
+                        }
+                    }
+                }
                 State.Idle -> Text(
                     if (sel == null) "No server selected" else "Tap the ring to connect",
                     style = NType.body, color = n.muted,

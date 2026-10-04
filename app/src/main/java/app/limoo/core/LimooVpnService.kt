@@ -370,6 +370,10 @@ class LimooVpnService : VpnService() {
 
     private fun fail(msg: String) {
         error.value = msg; state.value = State.Error
+        // Persist the reason too. `error` only lives in memory, so the explanation was gone once the
+        // process died - and a connect failure with no trace is the hardest kind to report. The raw
+        // message is stored verbatim; nothing is added that could contain the config or credentials.
+        Crash.log("connect failed: $msg", null)
         if (settings.killSwitch && tun != null) holdBlocked(msg) else stopVpn(keepError = true)
     }
 

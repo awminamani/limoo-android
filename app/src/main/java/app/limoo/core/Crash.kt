@@ -14,6 +14,7 @@ import java.io.File
 object Crash {
     private const val FILE = "last_crash.txt"
     private const val MAX = 4000
+    private const val ROTATE_AT = 64 * 1024L
     private const val NL = "\n"
 
     /** Set by the Application so helpers can log without a Context. */
@@ -28,7 +29,17 @@ object Crash {
                 sb.append(t.javaClass.name).append(": ").append(t.message ?: "").append(NL)
                 sb.append(Log.getStackTraceString(t).take(MAX)).append(NL)
             }
-            File(ctx.filesDir, FILE).appendText(sb.toString())
+            val f = File(ctx.filesDir, FILE)
+            // Rotate. The file was only ever READ back as its last MAX chars, but it was APPENDED to
+            // without limit, so it grew for the life of the install while the visible window never
+            // moved. Keep a bounded tail and one previous generation, so a failure that happened just
+            // before a rotation is still recoverable.
+            if (f.length() > ROTATE_AT) {
+                val old = File(ctx.filesDir, "$FILE.1")
+                runCatching { old.delete() }
+                runCatching { f.renameTo(old) }
+            }
+            f.appendText(sb.toString())
         } catch (ignored: Throwable) {
             // A crash logger must never itself crash.
         }
