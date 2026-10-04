@@ -57,31 +57,44 @@ class ConfigValidatorTest {
     fun `REALITY over an unsupported transport is rejected, per the core`() {
         // This exact combination was rejected by xray v26.9.30 during the matrix run.
         for (network in listOf("ws", "httpupgrade")) {
-            val problems = ConfigValidator.validate(srv(network = network, security = "reality"))
+            val problems = ConfigValidator.validate(reality(network = network))
             assertTrue("$network should be rejected", problems.any { it.contains("only works over TCP, XHTTP or gRPC") })
         }
         for (network in listOf("tcp", "xhttp", "grpc")) {
-            assertTrue("$network should be accepted", ConfigValidator.isValid(srv(network = network, security = "reality")))
+            assertTrue("$network should be accepted", ConfigValidator.isValid(reality(network = network)))
         }
     }
+
+    // Every REALITY assertion below passes security = "reality" EXPLICITLY. The fixture's default is
+    // "tls", so relying on the default left these tests asserting against a non-REALITY server and
+    // silently checking nothing. That is why the first run failed here.
+    private fun reality(
+        pbk: String = "BRIfLDlGU2BteoeUoa67yNXi7_wJFiMwPUpXZHF-i5g",
+        sid: String = "0123456789abcdef",
+        network: String = "tcp",
+        sni: String = "example.com",
+    ) = srv(security = "reality", network = network, pbk = pbk, sid = sid, sni = sni)
 
     @Test
     fun `a malformed REALITY public key is rejected, per the core`() {
         // REALITY's `password` field IS the public key: 43 base64url chars = 32 bytes.
-        assertTrue(ConfigValidator.validate(srv(pbk = "")).any { it.contains("needs a public key") })
-        assertTrue(ConfigValidator.validate(srv(pbk = "tooshort")).any { it.contains("43 base64url") })
-        // 44 chars, decodes, but not 43 - the shape the matrix run rejected.
-        assertTrue(ConfigValidator.validate(srv(pbk = "gI0GAqCZFpT4r9nP0oS3hVvXyZaBcDeFgHiJkLmNoPqR")).any { it.contains("43 base64url") })
-        assertTrue(ConfigValidator.isValid(srv(pbk = "BRIfLDlGU2BteoeUoa67yNXi7_wJFiMwPUpXZHF-i5g")))
+        assertTrue(ConfigValidator.validate(reality(pbk = "")).any { it.contains("needs a public key") })
+        assertTrue(ConfigValidator.validate(reality(pbk = "tooshort")).any { it.contains("43 base64url") })
+        // 44 chars, decodes to 33 bytes - the shape the matrix run rejected as an invalid password.
+        assertTrue(ConfigValidator.validate(reality(pbk = "gI0GAqCZFpT4r9nP0oS3hVvXyZaBcDeFgHiJkLmNoPqR")).any { it.contains("43 base64url") })
+        // Standard base64 with '+' and '/' is NOT what a REALITY key uses.
+        assertTrue(ConfigValidator.validate(reality(pbk = "a+b/cdefghijklmnopqrstuvwxyz0123456789ABCDEF")).any { it.contains("43 base64url") })
+        assertTrue(ConfigValidator.isValid(reality()))
+        assertTrue(ConfigValidator.validate(reality(sni = "")).any { it.contains("server name") })
     }
 
     @Test
     fun `a bad REALITY short ID is rejected`() {
-        assertTrue(ConfigValidator.validate(srv(sid = "xyz")).any { it.contains("short ID") })
-        assertTrue(ConfigValidator.validate(srv(sid = "012")).any { it.contains("even length") })
-        assertTrue(ConfigValidator.validate(srv(sid = "0123456789abcdef01")).any { it.contains("at most 16") })
-        assertTrue(ConfigValidator.isValid(srv(sid = "")))          // empty is allowed
-        assertTrue(ConfigValidator.isValid(srv(sid = "0123456789abcdef")))
+        assertTrue(ConfigValidator.validate(reality(sid = "xyz")).any { it.contains("short ID") })
+        assertTrue(ConfigValidator.validate(reality(sid = "012")).any { it.contains("even length") })
+        assertTrue(ConfigValidator.validate(reality(sid = "0123456789abcdef01")).any { it.contains("at most 16") })
+        assertTrue(ConfigValidator.isValid(reality(sid = "")))          // empty is allowed
+        assertTrue(ConfigValidator.isValid(reality(sid = "0123456789abcdef")))
     }
 
     @Test
