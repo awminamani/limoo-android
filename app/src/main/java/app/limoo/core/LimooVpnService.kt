@@ -224,7 +224,7 @@ class LimooVpnService : VpnService() {
                 connectedAt.value = System.currentTimeMillis(); store.touch(server.id)
                 state.value = State.Connected
                 runCatching { nm.notify(NOTIF_ID, notification(server.name, fmtSpeed(0, 0), fmtTotal(0, 0), connectedAt.value)) }
-                startCounterLoop(st)
+                startCounterLoop(st, store)
             } catch (c: CancellationException) { throw c
             } catch (t: Throwable) { fail(t.message ?: t.javaClass.simpleName) }
         }
@@ -300,14 +300,14 @@ class LimooVpnService : VpnService() {
      * The tick rate is the user's (AppSettings.statIntervalMs), doubled by battery saver, and the watchdog
      * interval is derived from it so a slow tick does not mean a slow death check.
      */
-    private fun startCounterLoop(st: AppSettings) {
+    private fun startCounterLoop(st: AppSettings, store: app.limoo.Store) {
         counterJob?.cancel()
         // Tiered sampling. The loop cannot know whether anyone is watching, so it samples on one of two
         // rates: the user's chosen rate while the UI is in the foreground showing the readout, and a much
         // slower one the rest of the time. A tunnel is usually connected with the app in the background,
         // and at 1 s that meant 3,600 wakeups/hour, 7,200 binder reads of TrafficStats and 3,600 gRPC
         // round-trips into the Go core - to produce a number nobody is looking at.
-        val live = if (LimooApp.uiActive.get()) st.statIntervalMs else BACKGROUND_TICK_MS
+        val live = if (store.uiActive.get()) st.statIntervalMs else BACKGROUND_TICK_MS
         val tickMs = (if (st.batterySaver) live.coerceAtLeast(500) * 2 else live).coerceIn(500, 30_000).toLong()
         val watchdogEvery = maxOf(1L, 5000L / tickMs)
         counterJob = scope.launch {
