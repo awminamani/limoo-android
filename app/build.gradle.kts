@@ -1,4 +1,5 @@
 import java.net.URL
+import java.security.MessageDigest
 import java.util.Properties
 import java.util.zip.ZipInputStream
 
@@ -87,7 +88,10 @@ tasks.register("fetchXrayCore") {
         if (want.isNotEmpty()) {
             // Named lambda parameter, not `it`: inside a Gradle doLast the implicit receiver makes a
             // bare `it` resolve against the task rather than the byte being formatted.
-            val got = java.security.MessageDigest.getInstance("SHA-256")
+            // `java.security.MessageDigest` cannot be written inline in a Gradle build script: `java` is a
+            // Project extension (the Java plugin), so it shadows the package name and `java.security`
+            // resolves to a property of the java extension. Hence the import at the top of this file.
+            val got = MessageDigest.getInstance("SHA-256")
                 .digest(tmp.inputStream().use { s -> s.readBytes() })
                 .joinToString("") { b -> "%02x".format(b) }
             if (!got.equals(want, ignoreCase = true)) {
