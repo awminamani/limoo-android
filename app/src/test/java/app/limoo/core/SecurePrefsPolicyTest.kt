@@ -27,28 +27,35 @@ class SecurePrefsPolicyTest {
         private val pending = mutableMapOf<String, Any?>()
         private val drops = mutableSetOf<String>()
 
-        override fun getString(key: String?, defValue: String?): String? =
-            (pending[key] ?: map[key] ?: drops.remove(key.let { "$it.unreadable" })) as? String ?: defValue
+        // SharedPreferences declares the keys as String?, so every override has to accept null. `?: ""`
+        // keeps the map lookup well-typed without inventing behaviour the tests rely on - every call site
+        // here passes a non-null key.
+        override fun getString(key: String?, defValue: String?): String? {
+            val k = key ?: return defValue
+            val v = pending[k] ?: map[k]
+            if (v == null && drops.remove(k)) return map[k] as? String
+            return v as? String ?: defValue
+        }
 
         override fun getStringSet(key: String?, defValues: MutableSet<String>?): MutableSet<String>? = defValues
         override fun getInt(key: String?, defValue: Int): Int = defValue
         override fun getLong(key: String?, defValue: Long): Long = defValue
         override fun getFloat(key: String?, defValue: Float): Float = defValue
         override fun getBoolean(key: String?, defValue: Boolean): Boolean = defValue
-        override fun contains(key: String?): Boolean = map.containsKey(key)
+        override fun contains(key: String?): Boolean = key != null && map.containsKey(key)
         override fun getAll(): MutableMap<String, *> = map
         override fun registerOnSharedPreferenceChangeListener(l: SharedPreferences.OnSharedPreferenceChangeListener?) = Unit
         override fun unregisterOnSharedPreferenceChangeListener(l: SharedPreferences.OnSharedPreferenceChangeListener?) = Unit
         override fun edit(): SharedPreferences.Editor = Ed()
 
         private inner class Ed : SharedPreferences.Editor {
-            override fun putString(key: String?, value: String?) = also { pending[key] = value }
-            override fun putStringSet(key: String?, v: MutableSet<String>?) = also { pending[key] = v }
-            override fun putInt(key: String?, v: Int) = also { pending[key] = v }
-            override fun putLong(key: String?, v: Long) = also { pending[key] = v }
-            override fun putFloat(key: String?, v: Float) = also { pending[key] = v }
-            override fun putBoolean(key: String?, v: Boolean) = also { pending[key] = v }
-            override fun remove(key: String?) = also { drops.add(key!!); pending.remove(key) }
+            override fun putString(key: String?, value: String?) = also { if (key != null) pending[key] = value }
+            override fun putStringSet(key: String?, v: MutableSet<String>?) = also { if (key != null) pending[key] = v }
+            override fun putInt(key: String?, v: Int) = also { if (key != null) pending[key] = v }
+            override fun putLong(key: String?, v: Long) = also { if (key != null) pending[key] = v }
+            override fun putFloat(key: String?, v: Float) = also { if (key != null) pending[key] = v }
+            override fun putBoolean(key: String?, v: Boolean) = also { if (key != null) pending[key] = v }
+            override fun remove(key: String?) = also { key?.let { drops.add(it); pending.remove(it) } }
             override fun clear() = also { map.clear() }
             override fun commit(): Boolean = also { pending.forEach { (k, v) -> map[k] = v }; pending.clear(); true }
             override fun apply() { commit() }
