@@ -25,7 +25,7 @@ object XrayConfigBuilder {
      */
     private fun directOutbound() = buildJsonObject {
         put("tag", "direct"); put("protocol", "freedom")
-        put("settings", buildJsonObject { put("domainStrategy", "IPIfNonMatch") })
+        put("settings", buildJsonObject { })
     }
 
     /**
