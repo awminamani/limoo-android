@@ -56,21 +56,21 @@ for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
         if re.search(r"\.setContentView\s*\(", line) and "RemoteViews" in line:
             fail.append(f"{f}:{i} uses setContentView on a Builder (does not exist)")
 
-# ---- 3. balance delta vs last green ----
-GREEN = sp.run(["git", "-C", REPO, "rev-list", "-1", "--grep=success", "--all"],
-               capture_output=True, text=True)
-def bal(s):
-    s = re.sub(r"//[^\n]*", "", s); s = re.sub(r"/\*.*?\*/", "", s, flags=re.S)
-    s = re.sub(r'"(?:\\.|[^"\\\n])*"', '""', s)
-    return (s.count("{") - s.count("}"), s.count("(") - s.count(")"))
+# ---- 3. (removed) ----
+# This block ran `git log --grep=success` to find a "last green" commit and compared brace-balance
+# deltas against it, via a bal() helper. Both were dead: GREEN was computed and never read, and
+# bal() was defined and never called. The design was also wrong on its own terms - grepping commit
+# MESSAGES for the word "success" means renaming a commit could turn CI red, which is not a property
+# anyone wants from a build. The brace-balance idea is unnecessary anyway: kotlinc runs in this same
+# job and is strictly better at all of it.
 
 # ---- 4. positional args on our own composables ----
-sigs = {"NSpinner": 4, "NBusy": 3, "NBusyBlock": 2, "NRule": 2, "NBrackets": 3, "NStat": 4,
-        "NDots": 3, "SubAllowance": 6, "DotTextFixed": 6, "DotText": 6, "NGlyph": 4,
-        "NReadout": 5, "NFadeDots": 3, "NDotsProgress": 4,
-        # onPick/onChange are lambda parameters: a 4th POSITIONAL arg there is a type error, because the
-        # call site meant a trailing lambda. The optional `sub` must be passed by name.
-        "ChoiceRow": 4, "NSlider": 6, "NRow": 4, "NButton": 7}
+# Only components that EXIST are listed. The table used to carry NSpinner, NBusy, NBusyBlock, NDots,
+# NBrackets, NGlyph, NReadout, DotText, DotTextFixed, NFadeDots and NDotsProgress - all deleted, zero
+# references in app/src. A guard for a component that no longer exists can never fire, and keeping it
+# reads as coverage that is not there. Add an entry when you add a composable that is easy to
+# over-satisfy positionally; remove it when you delete the composable.
+sigs = {"SubAllowance": 6, "ChoiceRow": 4, "NSlider": 6, "NRow": 4, "NButton": 7, "NStat": 4}
 for f in glob.glob(ROOT + "/**/*.kt", recursive=True):
     for i, line in enumerate(open(f), 1):
         for name, mx in sigs.items():

@@ -76,6 +76,15 @@ jobs:
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
 
+      # The proof that a generated config is VALID, not merely well-shaped. `xray run -test` parses the
+      # config and builds every outbound and routing rule, which is exactly the stage the connect bug
+      # lived in: the core rejected a config it considered malformed, before any packet was sent, and
+      # named a JSON path instead of the offending value. No network, no root.
+      - name: Validate generated configs with the real Xray core
+        run: tools/check-xray-configs.sh
+        env:
+          XRAY_VERSION: v26.9.30
+
       - name: Assemble debug
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 

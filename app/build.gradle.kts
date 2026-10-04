@@ -71,6 +71,7 @@ dependencies {
 // ---- Xray core: downloaded at build time on your machine when app/libs/libv2ray.aar is missing ----
 val coreAar = layout.projectDirectory.file("libs/libv2ray.aar").asFile
 val coreUrl = providers.gradleProperty("limoo.coreUrl").get()
+val coreSha256 = providers.gradleProperty("limoo.coreSha256").orNull ?: ""
 tasks.register("fetchXrayCore") {
     group = "limoo"; description = "Downloads libv2ray.aar (AndroidLibXrayLite) into app/libs if missing"
     onlyIf { !coreAar.exists() }
@@ -79,6 +80,22 @@ tasks.register("fetchXrayCore") {
         val tmp = File(coreAar.parentFile, "libv2ray.aar.tmp")
         URL(coreUrl).openStream().use { i -> tmp.outputStream().use { o -> i.copyTo(o) } }
         check(tmp.length() > 1_000_000) { "Downloaded core is too small - set limoo.coreUrl in gradle.properties" }
+        // Verify the pinned digest. Without this a silently-substituted or truncated AAR builds fine and
+        // fails only on a phone; with an unpinned URL this was the real risk, since every build could pull
+        // a different core.
+        val want = coreSha256.trim()
+        if (want.isNotEmpty()) {
+            val got = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(tmp.inputStream().use { it.readBytes() })
+                .joinToString("") { "%02x".format(it) }
+            if (!got.equals(want, ignoreCase = true)) {
+                tmp.delete()
+                throw GradleException("libv2ray.aar digest mismatch.\n  expected sha256 $want\n  actual   sha256 $got\nThe pinned core was replaced or the download was corrupted. Refusing to build.")
+            }
+            println("fetchXrayCore: sha256 verified ($got)")
+        } else {
+            logger.warn("limoo.coreSha256 is empty - the core is NOT verified. Pin it before shipping a release.")
+        }
         tmp.renameTo(coreAar)
     }
 }
