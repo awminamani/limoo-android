@@ -34,14 +34,14 @@ class ConfigValidatorTest {
     // ---- the four rules the core itself taught us ----
 
     @Test
-    fun `vless without encryption is rejected - core: prohibited unless a private IP`() {
+    fun `vless without encryption is rejected, per the core's prohibition`() {
         assertTrue(ConfigValidator.validate(srv(security = "none")).any { it.contains("needs TLS or REALITY") })
         assertTrue(ConfigValidator.isValid(srv(security = "tls")))
         assertTrue(ConfigValidator.isValid(srv(security = "reality")))
     }
 
     @Test
-    fun `trojan without TLS is rejected - core: prohibited unless a private IP`() {
+    fun `trojan without TLS is rejected, per the core's prohibition`() {
         assertTrue(ConfigValidator.validate(srv(protocol = "trojan", security = "none")).any { it.contains("needs TLS or REALITY") })
         assertTrue(ConfigValidator.isValid(srv(protocol = "trojan", security = "tls")))
     }
@@ -54,7 +54,7 @@ class ConfigValidatorTest {
     }
 
     @Test
-    fun `REALITY over an unsupported transport is rejected - core: only RAW, XHTTP and gRPC`() {
+    fun `REALITY over an unsupported transport is rejected, per the core`() {
         // This exact combination was rejected by xray v26.9.30 during the matrix run.
         for (network in listOf("ws", "httpupgrade")) {
             val problems = ConfigValidator.validate(srv(network = network, security = "reality"))
@@ -66,7 +66,7 @@ class ConfigValidatorTest {
     }
 
     @Test
-    fun `a malformed REALITY public key is rejected - core: invalid password`() {
+    fun `a malformed REALITY public key is rejected, per the core`() {
         // REALITY's `password` field IS the public key: 43 base64url chars = 32 bytes.
         assertTrue(ConfigValidator.validate(srv(pbk = "")).any { it.contains("needs a public key") })
         assertTrue(ConfigValidator.validate(srv(pbk = "tooshort")).any { it.contains("43 base64url") })
