@@ -9,8 +9,13 @@ plugins {
 android {
     namespace = "app.limoo"; compileSdk = 34
     defaultConfig {
-        applicationId = "app.limoo"; minSdk = 26; targetSdk = 34; versionCode = 6; versionName = "0.6.0"
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
+        applicationId = "app.limoo"; minSdk = 26; targetSdk = 34; versionCode = 7; versionName = "0.7.0"
+        // arm64-v8a ONLY. Every extra ABI ships another full copy of the Xray Go runtime, and the
+        // release APK was ~120 MB - three runtimes. Restricting to the ABI that actually runs on the
+        // phones this app targets brings it to roughly a third of that, which matters for anyone
+        // downloading it over a mobile or metered connection. splits below can add the others back
+        // for sideloading from a desktop, without inflating the APK a phone installs.
+        ndk { abiFilters += listOf("arm64-v8a") }
     }
     // Release signing: keystore.properties (local, git-ignored) or LIMOO_* env vars (CI).
     //

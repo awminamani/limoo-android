@@ -188,13 +188,19 @@ jobs:
           done
 
           NOTES=$(git log -1 --pretty=%B)
+          # Publish a SHA-256 alongside the APKs. Google Play Protect flags every sideloaded app from an
+          # unknown developer, and it has no way to tell a genuine build from a repackaged one. A
+          # published digest gives anyone who wants to check something immutable to check against - the
+          # GitHub release itself is the trusted channel, so the sum is worth exactly as much as the
+          # account that hosts it.
+          ( cd dist && sha256sum *.apk > SHA256SUMS.txt && cat SHA256SUMS.txt )
           if gh release view "$TAG" >/dev/null 2>&1; then
             # Existing release for this version: replace its assets and notes.
-            gh release upload "$TAG" dist/*.apk --clobber
+            gh release upload "$TAG" dist/*.apk dist/SHA256SUMS.txt --clobber
             gh release edit "$TAG" --notes "$NOTES"
             echo "Updated existing release $TAG"
           else
-            gh release create "$TAG" dist/*.apk \
+            gh release create "$TAG" dist/*.apk dist/SHA256SUMS.txt \
               --title "Limoo ${VER_NAME}" \
               --notes "$NOTES"
             echo "Created release $TAG"
