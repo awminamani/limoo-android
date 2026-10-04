@@ -237,7 +237,7 @@ fun SettingsScreen(store: Store, a: Actions) {
                 NSlider("Background blur", st.bgBlur, 0f, 1f, valueLabel = "${(st.bgBlur * 100).toInt()}%") { v ->
                     upd { it.copy(bgBlur = v) }
                 }
-                NLabel("BLUR REDUCES THE IMAGE DECODE SIZE, SO IT COSTS NOTHING EXTRA", Modifier.padding(horizontal = Space.card))
+                NLabel("BLUR SOFTENS THE IMAGE - ONLY THE DIM SLIDER IS FREE", Modifier.padding(horizontal = Space.card))
             }
             Text(
                 "The photo stays on your device. Limoo stores only the reference, never a copy, and the gallery picker asks for no storage permission. A shared .limoo file carries the dim and blur but never your image.",

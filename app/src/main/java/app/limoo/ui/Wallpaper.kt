@@ -2,17 +2,21 @@ package app.limoo.ui
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -34,9 +38,7 @@ import java.io.InputStream
  *     accent layer: a photograph is already fully coloured and tinting it would only muddy it.
  *
  * In both cases an optional **blur** and **dim** are applied on top so the UI stays legible over artwork.
- * The blur is done by downscaling the decoded bitmap and letting the GPU stretch it back up - a real
- * blur filter for a full-screen image every frame is far too expensive on a phone, and the low-resolution
- * upscale is visually indistinguishable at this strength.
+ * The blur is real and requested through [bgBlur]; see [decodeBackground] for how it is applied cheaply.
  *
  * The accent is read from [LocalN], which `NTheme` derives from the stored `AppSettings.accent`. That
  * makes this the app's single accent source: changing the setting recomposes `NTheme`, this reads the new
@@ -64,17 +66,53 @@ fun AccentWallpaper(st: AppSettings, modifier: Modifier = Modifier, scrim: Float
                 colorFilter = ColorFilter.tint(accent),
                 modifier = Modifier.fillMaxSize(),
             )
+            // The shipped artwork is a vector drawable, so the blur has to be a RenderEffect. It is
+            // applied here, on the layer, rather than baked into the bitmap - a custom photo takes the
+            // cheap downscale path in decodeBackground instead.
+            if (st.bgBlur > 0.01f) {
+                Box(
+                    Modifier.fillMaxSize()
+                        .graphicsLayer { renderEffect = BlurEffect(8f * st.bgBlur, 8f * st.bgBlur, TileMode.Clamp) }
+                ) {
+                    Image(
+                        painter = painterResource(R.drawable.limoo_wallpaper_base),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    Image(
+                        painter = painterResource(R.drawable.limoo_accent_mask),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        colorFilter = ColorFilter.tint(accent),
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
         } else {
-            // Decoded off the composition thread, and only re-decoded when the user picks a different image.
-            // LocalContext is captured OUTSIDE the produceState block: that block is a suspend lambda, not a
-            // composable, so reading a CompositionLocal inside it does not compile.
+            // Decoded off the composition thread, and only re-decoded when the user picks a different
+            // image. bgBlur is deliberately NOT a key here: it is baked into the decoded bitmap's
+            // resolution, so re-decoding on every slider tick is what made the blur slider stutter.
+            // LocalContext is captured OUTSIDE the produceState block: that block is a suspend lambda,
+            // not a composable, so reading a CompositionLocal inside it does not compile.
             val ctx = LocalContext.current
-            val bmp by produceState<ImageBitmap?>(initialValue = null, key1 = custom, key2 = st.bgBlur) {
+            val bmp by produceState<ImageBitmap?>(initialValue = null, key1 = custom) {
                 value = decodeBackground(ctx, custom, st.bgBlur)
             }
-            bmp?.let {
+            if (bmp == null) {
+                // The stored URI stopped resolving - the persisted permission was dropped, the image was
+                // deleted, or the provider is gone. Previously this silently rendered nothing, so the app
+                // looked broken with no way to tell why. Fall back to the shipped artwork and say so.
                 Image(
-                    bitmap = it,
+                    painter = painterResource(R.drawable.limoo_wallpaper_base),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                LaunchedEffect(custom) { Ui.say("BACKGROUND UNAVAILABLE - USING DEFAULT") }
+            } else {
+                Image(
+                    bitmap = bmp!!,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),

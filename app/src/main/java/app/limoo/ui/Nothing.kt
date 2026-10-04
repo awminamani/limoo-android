@@ -13,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -677,21 +678,51 @@ fun NSlider(
             // Constraints give the track's real width in Dp, so the thumb offset stays in Dp the whole way.
             val trackW = maxWidth
             val thumb = 6.dp
+
+            // The value a gesture starts from is held in mutable state rather than read from `value`.
+            // Inside pointerInput the lambda captures the value from the composition it was built in,
+            // so `value + dragAmount * perPx` compounded from a STALE base: the further you dragged, the
+            // more the thumb ran away from the finger. Reading the live base through rememberUpdatedState
+            // is what keeps the thumb under the pointer for the whole gesture.
+            val base = rememberUpdatedState(value)
+            val emit = rememberUpdatedState<(Float) -> Unit> { f ->
+                val raw = f.coerceIn(min, max)
+                val snapped = if (steps > 0) {
+                    val stepSize = span / (steps + 1)
+                    min + Math.round((raw - min) / stepSize) * stepSize
+                } else raw
+                onChange(snapped.coerceIn(min, max))
+            }
+
+            // Absolute position of a pointer/tap along the track, in the 0..1 fraction.
+            fun fractionAt(x: Float, w: Int): Float? =
+                if (w <= 0) null else (x / w).coerceIn(0f, 1f)
+
             Box(
                 Modifier
                     .fillMaxSize()
                     .clip(RoundedCornerShape(Radius.control))
                     .pointerInput(min, max, steps, trackW) {
-                        detectHorizontalDragGestures { change, dragAmount ->
+                        // Tap-to-set. Without this the only way to move the thumb was to drag, and a
+                        // small target makes that unusable with a thumb.
+                        detectTapGestures { offset ->
+                            fractionAt(offset.x, size.width)?.let { f ->
+                                emit.value(min + f * span); tick()
+                            }
+                        }
+                    }
+                    .pointerInput(min, max, steps, trackW) {
+                        // Drag is RELATIVE to the live base, and the base is refreshed as the value
+                        // changes, so the thumb tracks the finger instead of drifting.
+                        var start = base.value
+                        detectHorizontalDragGestures(
+                            onDragStart = { start = base.value },
+                        ) { change, dragAmount ->
                             change.consume()
-                            if (size.width <= 0) return@detectHorizontalDragGestures
-                            val perPx = span / size.width
-                            val raw = (value + dragAmount * perPx).coerceIn(min, max)
-                            val snapped = if (steps > 0) {
-                                val stepSize = span / (steps + 1)
-                                min + Math.round((raw - min) / stepSize) * stepSize
-                            } else raw
-                            onChange(snapped.coerceIn(min, max))
+                            val perPx = span / size.width.coerceAtLeast(1)
+                            val next = (start + dragAmount * perPx).coerceIn(min, max)
+                            start = next            // accumulate within this gesture
+                            emit.value(next)
                         }
                     }
                     .clickable(
