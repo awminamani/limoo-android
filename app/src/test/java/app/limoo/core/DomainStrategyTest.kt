@@ -93,15 +93,36 @@ class DomainStrategyTest {
 
     @Test
     fun `the default settings produce a config the core can build`() {
-        // This is the regression in one assertion: the shipped default is IPIfNonMatch.
+        // The shipped default is AsIs: the one value that is valid for BOTH routing and freedom, so a
+        // user's stored setting can never be rejected by the core at config-build time.
         val cfg = Json.parseToJsonElement(XrayConfigBuilder.build(server, AppSettings())).jsonObject
+        assertEquals("AsIs", cfg["routing"]!!.jsonObject["domainStrategy"]!!.jsonPrimitive.content)
+        val direct = cfg["outbounds"]!!.jsonArray.map { it.jsonObject }
+            .single { it["tag"]!!.jsonPrimitive.content == "direct" }
+        assertTrue(
+            "freedom must not receive a domain strategy at all",
+            !direct["settings"]!!.jsonObject.containsKey("domainStrategy"),
+        )
+    }
+
+    /**
+     * Settings are persisted with encodeDefaults = true, so an app that already stored
+     * "IPIfNonMatch" keeps that value after upgrading and never sees the new AsIs default. The fix
+     * therefore cannot rely on the default - it has to hold for every stored value. This is that case.
+     */
+    @Test
+    fun `a settings blob written before the default changed still builds`() {
+        val stored = AppSettings(domainStrategy = "IPIfNonMatch")   // what v0.6.0 wrote to disk
+        val cfg = Json.parseToJsonElement(XrayConfigBuilder.build(server, stored)).jsonObject
         assertEquals("IPIfNonMatch", cfg["routing"]!!.jsonObject["domainStrategy"]!!.jsonPrimitive.content)
         val direct = cfg["outbounds"]!!.jsonArray.map { it.jsonObject }
             .single { it["tag"]!!.jsonPrimitive.content == "direct" }
         assertTrue(
-            "freedom must not receive IPIfNonMatch",
+            "freedom must not receive the stored routing strategy",
             !direct["settings"]!!.jsonObject.containsKey("domainStrategy"),
         )
+        assertStrategyRulesHold(XrayConfigBuilder.build(server, stored), "stored-blob")
+        assertStrategyRulesHold(XrayConfigBuilder.buildProbe(server, stored), "stored-blob/probe")
     }
 
     @Test

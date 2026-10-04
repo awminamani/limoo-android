@@ -51,7 +51,12 @@ data class AppSettings(
     val routingPreset: String = "global",            // global | bypassIran | bypassChina | bypassRussia
     // How a domain is resolved for routing. AsIs avoids a second DNS round trip, IPIfNonMatch keeps rules
     // working at the cost of one lookup, IPOnDemand resolves only when a rule actually needs an IP.
-    val domainStrategy: String = "IPIfNonMatch",     // AsIs | IPIfNonMatch | IPOnDemand
+    // Defaults to AsIs. IPIfNonMatch only became unusable because it was ALSO being written into the
+    // freedom outbound, whose accepted values are a disjoint set (AsIs / UseIP / UseIPv4 / UseIPv6);
+    // XrayConfigBuilder no longer does that. AsIs is still the safer default: it is valid for routing
+    // AND freedom, so a settings value can never be rejected by the core at config-build time, and it
+    // resolves every domain locally instead of paying a DNS round trip per lookup through the proxy.
+    val domainStrategy: String = "AsIs",              // AsIs | IPIfNonMatch | IPOnDemand
     val blockAds: Boolean = false, val customRules: String = "",   // JSON array of Xray rules
     // advanced
     val sniffing: Boolean = true, val mux: Boolean = false, val muxConcurrency: Int = 8,
