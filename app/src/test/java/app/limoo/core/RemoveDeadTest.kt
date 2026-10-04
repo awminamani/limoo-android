@@ -63,7 +63,8 @@ class RemoveDeadTest {
     fun `a fresh Server defaults to not-measured rather than dead`() {
         // The default matters for every server loaded from a saved file: anything defaulting to 0
         // would make an unmeasured list look entirely dead.
-        assertEquals(Latency.UNKNOWN, Server(name = "n").pingMs)
-        assertEquals(Latency.UNKNOWN, Server(name = "n").tcpMs)
+        val fresh = Server(name = "n", protocol = "vless", host = "h.example.com", port = 443)
+        assertEquals(Latency.UNKNOWN, fresh.pingMs)
+        assertEquals(Latency.UNKNOWN, fresh.tcpMs)
     }
 }
