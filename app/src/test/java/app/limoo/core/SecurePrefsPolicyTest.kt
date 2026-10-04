@@ -24,6 +24,8 @@ class SecurePrefsPolicyTest {
     /** Minimal SharedPreferences: enough for the policy, no Android runtime needed. */
     private class FakePrefs : SharedPreferences {
         val map = mutableMapOf<String, Any?>()
+        /** Mimics the real SecurePrefs: an "enc1:" value whose decrypt() returns null yields defValue. */
+        var decryptFails = false
         private val pending = mutableMapOf<String, Any?>()
         private val drops = mutableSetOf<String>()
 
@@ -34,7 +36,9 @@ class SecurePrefsPolicyTest {
             val k = key ?: return defValue
             val v = pending[k] ?: map[k]
             if (v == null && drops.remove(k)) return map[k] as? String
-            return v as? String ?: defValue
+            val raw = v as? String ?: return defValue
+            if (decryptFails && raw.startsWith("enc1:")) return defValue   // undecryptable blob
+            return raw
         }
 
         override fun getStringSet(key: String?, defValues: MutableSet<String>?): MutableSet<String>? = defValues
@@ -125,7 +129,8 @@ class SecurePrefsPolicyTest {
         // Step 1: a blob that exists but cannot be decrypted.
         prefs.edit().putString("servers", "enc1:garbage").commit()
 
-        // Step 2: the read fails, so the app sees the default.
+        // Step 2: the read fails, so the app sees the default - "[]", an empty server list.
+        prefs.decryptFails = true
         val seen = prefs.getString("servers", "[]")
         assertEquals("[]", seen)
         policy.recordReadFailure("servers")           // what SecurePrefs now does on a failed read
@@ -135,7 +140,9 @@ class SecurePrefsPolicyTest {
             prefs.edit().putString("servers", "[]").commit()
         }
 
-        // Step 4: the original blob is still there, so nothing was lost.
+        // Step 4: the original blob survived. This is the assertion that fails WITHOUT the fix, where
+        // the write went through and "[]" replaced every server the user had.
+        prefs.decryptFails = false
         assertEquals("enc1:garbage", prefs.map["servers"])
     }
 }
