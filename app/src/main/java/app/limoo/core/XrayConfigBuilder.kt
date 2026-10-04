@@ -6,6 +6,58 @@ import kotlinx.serialization.json.*
 
 object XrayConfigBuilder {
     /**
+     * `routing.domainStrategy` and the freedom outbound's own `domainStrategy` are DIFFERENT settings
+     * with different allowed values, and they used to be fed from the same field. Routing accepts
+     * AsIs / IPIfNonMatch / IPOnDemand; freedom accepts AsIs / UseIP / UseIPv4 / UseIPv6. Writing the
+     * routing value into freedom made recent Xray cores reject the whole config with
+     * "unsupported domain strategy" - before any packet was sent - so with default settings NO server
+     * on NO protocol could connect. The two are now derived separately and never share a field.
+     */
+    private val ROUTING_STRATEGIES = setOf("AsIs", "IPIfNonMatch", "IPOnDemand")
+    private val FREEDOM_STRATEGIES = setOf("AsIs", "UseIP", "UseIPv4", "UseIPv6")
+
+    private fun routingStrategy(st: AppSettings) = st.domainStrategy.takeIf { it in ROUTING_STRATEGIES } ?: "AsIs"
+
+    /**
+     * Freedom's `settings.domainStrategy` is deliberately OMITTED (= AsIs). It is not the same
+     * setting as routing's, and omitting it is always valid. FREEDOM_STRATEGIES exists only so a test
+     * can assert that if a dedicated freedom setting is ever added, its value is whitelisted.
+     */
+    private fun directOutbound() = buildJsonObject {
+        put("tag", "direct"); put("protocol", "freedom")
+        put("settings", buildJsonObject { })
+    }
+
+    /**
+     * Fragment rides on `sockopt.dialerProxy`, so the `fragment` outbound must EXIST whenever that
+     * reference is written. The old code set dialerProxy whenever `st.fragment && security == "tls"`
+     * but only emitted the outbound when `st.fragment`, and `buildProbe` never emitted it at all -
+     * so with Fragment on, the core rejected the probe config (missing tag) and real delay could never
+     * work. One function now decides both sides of that relationship.
+     */
+    private fun outbounds(s: Server, st: AppSettings, forProbe: Boolean) = buildJsonArray {
+        val useFragment = st.fragment && s.security == "tls"   // dialerProxy is only set for TLS today
+        add(proxy(s, st, dialerProxy = if (useFragment) "fragment" else null))
+        add(directOutbound())
+        if (!forProbe) add(buildJsonObject { put("tag", "block"); put("protocol", "blackhole") })
+        if (useFragment) add(buildJsonObject {
+            put("tag", "fragment"); put("protocol", "freedom")
+            put("settings", buildJsonObject { put("fragment", buildJsonObject {
+                put("packets", packets(st.fragmentPackets))
+                put("length", range(st.fragmentLength, "100-200"))
+                put("interval", range(st.fragmentInterval, "10-20"))
+            }) })
+        })
+    }
+
+    // The core errors on malformed ranges rather than ignoring them, so anything unparseable falls
+    // back to a known-good default instead of being written out.
+    private val RANGE = Regex("""^\d{1,5}(-\d{1,5})?$""")
+    private fun ordered(r: String) = r.split('-').map { it.toInt() }.let { it.size == 1 || it[0] <= it[1] }
+    private fun range(v: String, def: String) = v.trim().takeIf { RANGE.matches(it) && ordered(it) } ?: def
+    private fun packets(v: String) = v.trim().takeIf { it == "tlshello" || RANGE.matches(it) } ?: "tlshello"
+
+    /**
      * Minimal config used only for a delay probe (the shape v2rayNG passes to measureOutboundDelay).
      * Deliberately has no inbounds - a probe must not bind the SOCKS/HTTP ports the running core owns -
      * and no routing rules, so it does not need geo data and cannot be rejected by a routing match.
@@ -13,29 +65,14 @@ object XrayConfigBuilder {
     fun buildProbe(s: Server, st: AppSettings): String = buildJsonObject {
         put("log", buildJsonObject { put("loglevel", "none") })
         put("inbounds", buildJsonArray { })
-        put("outbounds", buildJsonArray {
-            add(proxy(s, st))
-            add(buildJsonObject { put("tag", "direct"); put("protocol", "freedom"); put("settings", buildJsonObject { put("domainStrategy", st.domainStrategy) }) })
-        })
+        put("outbounds", outbounds(s, st, forProbe = true))
     }.toString()
 
     fun build(s: Server, st: AppSettings, tun: Boolean = false): String = buildJsonObject {
         put("log", buildJsonObject { put("loglevel", st.logLevel) })
         put("dns", dns(st))
         put("inbounds", inbounds(st, tun))
-        put("outbounds", buildJsonArray {
-            add(proxy(s, st))
-            add(buildJsonObject {
-                put("tag", "direct"); put("protocol", "freedom")
-                put("settings", buildJsonObject { put("domainStrategy", st.domainStrategy) })
-            })
-            add(buildJsonObject { put("tag", "block"); put("protocol", "blackhole") })
-            if (st.fragment) add(buildJsonObject {
-                put("tag", "fragment"); put("protocol", "freedom")
-                put("settings", buildJsonObject { put("fragment", buildJsonObject {
-                    put("packets", st.fragmentPackets); put("length", st.fragmentLength); put("interval", st.fragmentInterval) }) })
-            })
-        })
+        put("outbounds", outbounds(s, st, forProbe = false))
         // Required for queryAllOutboundTrafficStats() to report anything. Without a declared stats object
         // the core keeps no per-outbound counters, so the live figures silently stay at zero and the
         // notification never updates. SystemStats is what the gRPC stats service exposes.
@@ -115,7 +152,7 @@ object XrayConfigBuilder {
         if (dialerProxy != null) put("dialerProxy", dialerProxy)
     }
 
-    private fun proxy(s: Server, st: AppSettings) = buildJsonObject {
+    private fun proxy(s: Server, st: AppSettings, dialerProxy: String? = null) = buildJsonObject {
         put("tag", "proxy"); put("protocol", s.protocol)
         put("settings", when (s.protocol) {
             "vless" -> vnext(s, buildJsonObject { put("id", s.uuid); put("encryption", "none"); if (s.flow.isNotEmpty()) put("flow", s.flow) })
@@ -123,7 +160,7 @@ object XrayConfigBuilder {
             "trojan" -> servers(s, buildJsonObject { put("password", s.uuid) })
             else -> servers(s, buildJsonObject { put("method", s.method); put("password", s.uuid) })
         })
-        put("streamSettings", stream(s, st))
+        put("streamSettings", stream(s, st, dialerProxy))
         if (st.mux && s.flow.isEmpty() && s.network != "xhttp" && s.security != "reality")
             put("mux", buildJsonObject {
                 put("enabled", true); put("concurrency", st.muxConcurrency)
@@ -140,7 +177,7 @@ object XrayConfigBuilder {
         put("servers", buildJsonArray { add(JsonObject(mapOf("address" to JsonPrimitive(s.host), "port" to JsonPrimitive(s.port)) + extra)) })
     }
 
-    private fun stream(s: Server, st: AppSettings) = buildJsonObject {
+    private fun stream(s: Server, st: AppSettings, dialerProxy: String? = null) = buildJsonObject {
         put("network", s.network); put("security", s.security)
         if (s.security == "tls") put("tlsSettings", buildJsonObject {
             put("serverName", s.sni.ifEmpty { s.hostHeader.ifEmpty { s.host } }); put("allowInsecure", s.allowInsecure); put("fingerprint", s.fp)
@@ -160,7 +197,7 @@ object XrayConfigBuilder {
         }
         // Fragment rides on sockopt, so it has to be merged with the user's socket options rather than
         // replacing them - a second `put("sockopt")` in the same builder would silently drop the first.
-        put("sockopt", sockopt(st, if (st.fragment && s.security == "tls") "fragment" else null))
+        put("sockopt", sockopt(st, dialerProxy))
     }
 
     private fun rule(out: String, domain: List<String> = emptyList(), ip: List<String> = emptyList()) = buildJsonObject {
@@ -178,7 +215,7 @@ object XrayConfigBuilder {
     }
 
     private fun routing(st: AppSettings) = buildJsonObject {
-        put("domainStrategy", st.domainStrategy)
+        put("domainStrategy", routingStrategy(st))
         put("rules", buildJsonArray {
             runCatching { Json.parseToJsonElement(st.customRules).jsonArray }.getOrNull()?.forEach { add(it) }   // user rules win
             userRule("block", st.blockRules); userRule("proxy", st.proxyRules); userRule("direct", st.directRules)
