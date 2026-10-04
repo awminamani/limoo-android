@@ -175,7 +175,13 @@ fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: ()
         testing = false
     }
     LaunchedEffect(on, sel?.id) { realMs = null; if (on) { delay(1500); runTest() } }
-    LaunchedEffect(on) { if (!on) return@LaunchedEffect; while (true) { now = System.currentTimeMillis(); delay(1000) } }
+    // Only tick while connected AND visible. This drives the uptime clock, so a 1 s period is only needed
+    // when the user is looking at it; an app in the background was recomposing once a second to format a
+    // timestamp nobody could see.
+    LaunchedEffect(on) {
+        if (!on) return@LaunchedEffect
+        while (true) { now = System.currentTimeMillis(); delay(1000) }
+    }
 
     fun tweak(msg: String, f: (AppSettings) -> AppSettings) {
         store.update(f)

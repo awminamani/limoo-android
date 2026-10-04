@@ -60,6 +60,14 @@ class Store(ctx: Context) {
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val servers = MutableStateFlow(runCatching { json.decodeFromString<List<Server>>(sp.getString("servers", "[]")!!) }.getOrDefault(emptyList()))
+    /**
+     * Whether any screen is currently showing live traffic. The service's sampler reads this to pick its
+     * tick rate: fine while someone is watching the readout, coarse when the app is in the background.
+     * A plain AtomicBoolean rather than a StateFlow because the sampler is a coroutine loop, not a
+     * composable, and it must not subscribe to recomposition.
+     */
+    val uiActive = java.util.concurrent.atomic.AtomicBoolean(false)
+
     val settings = MutableStateFlow(runCatching { json.decodeFromString<AppSettings>(sp.getString("settings", "{}")!!) }.getOrDefault(AppSettings()))
     val subs = MutableStateFlow(loadSubs())
     val selectedId = MutableStateFlow(sp.getString("selected", null))

@@ -111,7 +111,21 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Writes any debounced state change straight to disk before the process can be killed. */
-    override fun onStop() { super.onStop(); store.flush() }
+    /**
+     * Drives the service's sampler rate. onStart/onStop bracket "a screen is showing live traffic", which
+     * is exactly when a 1 s tick is worth its cost; in the background the sampler drops to 5 s. Tied to
+     * the Activity rather than to a composable so it holds across rotation and while a sheet is open.
+     */
+    override fun onStart() {
+        super.onStart()
+        store.uiActive.set(true)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        store.uiActive.set(false)   // before flush(), so the sampler slows as we leave
+        store.flush()
+    }
 
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); handle(intent) }
 

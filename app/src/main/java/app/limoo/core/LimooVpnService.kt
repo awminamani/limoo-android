@@ -24,6 +24,14 @@ class LimooVpnService : VpnService() {
     enum class State { Idle, Connecting, Connected, Error }
 
     companion object {
+
+        /**
+         * Sampling rate when no screen is showing the readout. 5 s is chosen against the EMA below: the
+         * displayed rate is smoothed over ~3 ticks, so a background tick still converges on a correct
+         * average, it just reacts to a change in a few seconds rather than instantly. Nobody is reading
+         * it at that moment.
+         */
+        private const val BACKGROUND_TICK_MS = 5000
         const val ACTION_START = "app.limoo.START"; const val ACTION_STOP = "app.limoo.STOP"
         const val ACTION_RECONNECT = "app.limoo.RECONNECT"
 
@@ -294,7 +302,13 @@ class LimooVpnService : VpnService() {
      */
     private fun startCounterLoop(st: AppSettings) {
         counterJob?.cancel()
-        val tickMs = (if (st.batterySaver) st.statIntervalMs.coerceAtLeast(500) * 2 else st.statIntervalMs).coerceIn(500, 5000).toLong()
+        // Tiered sampling. The loop cannot know whether anyone is watching, so it samples on one of two
+        // rates: the user's chosen rate while the UI is in the foreground showing the readout, and a much
+        // slower one the rest of the time. A tunnel is usually connected with the app in the background,
+        // and at 1 s that meant 3,600 wakeups/hour, 7,200 binder reads of TrafficStats and 3,600 gRPC
+        // round-trips into the Go core - to produce a number nobody is looking at.
+        val live = if (LimooApp.uiActive.get()) st.statIntervalMs else BACKGROUND_TICK_MS
+        val tickMs = (if (st.batterySaver) live.coerceAtLeast(500) * 2 else live).coerceIn(500, 30_000).toLong()
         val watchdogEvery = maxOf(1L, 5000L / tickMs)
         counterJob = scope.launch {
             val uid = Process.myUid()
@@ -307,6 +321,8 @@ class LimooVpnService : VpnService() {
             var useCore = true
             var lastTick = SystemClock.elapsedRealtime()
             var lastPost = 0L; var lastFlush = lastTick; var ticks = 0L
+            // What the notification currently displays, so an unchanged rate costs nothing to skip.
+            var shownUp = -1L; var shownDown = -1L
             var downEma = 0.0; var upEma = 0.0
             while (isActive) {
                 delay(tickMs); ticks++
@@ -354,10 +370,14 @@ class LimooVpnService : VpnService() {
 
                 if (now - lastFlush >= 30_000L) { lastFlush = now; flushUsage() }
 
-                // Notification: re-posting is the single most expensive thing in this loop, so the interval
-                // follows the same battery-saver decision as the sampler.
-                val postEvery = if (st.batterySaver) 5_000L else 2_000L
-                if (now - lastPost >= postEvery) {
+                // Notification: re-posting is the most expensive thing in this loop, and a repost with
+                // identical numbers still wakes the shade. Skip it unless the displayed rate actually
+                // changed, or the periodic refresh came due.
+                val postEvery = if (st.batterySaver) 15_000L else 5_000L
+                val shown = shownUp to shownDown
+                val moved = shown != (upRate to downRate)
+                if ((moved || now - lastPost >= postEvery) && now - lastPost >= 500L) {
+                    shownUp = upRate; shownDown = downRate
                     lastPost = now
                     runCatching {
                         nm.notify(NOTIF_ID, notification(serverName.value, fmtSpeed(downRate, upRate), fmtTotal(totalDown, totalUp), connectedAt.value))
