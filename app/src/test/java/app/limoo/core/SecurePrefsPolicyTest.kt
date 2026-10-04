@@ -56,9 +56,14 @@ class SecurePrefsPolicyTest {
             override fun putFloat(key: String?, v: Float) = also { if (key != null) pending[key] = v }
             override fun putBoolean(key: String?, v: Boolean) = also { if (key != null) pending[key] = v }
             override fun remove(key: String?) = also { key?.let { drops.add(it); pending.remove(it) } }
-            // clear() returns Unit in the interface, so `also { }` would infer Editor here.
-            override fun clear() { map.clear() }
-            override fun commit(): Boolean = also { pending.forEach { (k, v) -> map[k] = v }; pending.clear(); true }
+            // Both return the Editor per the interface, so `also` is the wrong shape here even though
+            // it compiles: commit() must return Boolean.
+            override fun clear(): SharedPreferences.Editor = also { map.clear() }
+            override fun commit(): Boolean {
+                pending.forEach { (k, v) -> map[k] = v }
+                pending.clear()
+                return true
+            }
             override fun apply() { commit() }
         }
     }
