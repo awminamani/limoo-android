@@ -68,7 +68,7 @@ object XrayConfigBuilder {
         put("outbounds", outbounds(s, st, forProbe = true))
     }.toString()
 
-    fun build(s: Server, st: AppSettings, tun: Boolean = false): String = buildJsonObject {
+    fun build(s: Server, st: AppSettings, tun: Boolean = false, withGeoRules: Boolean = true): String = buildJsonObject {
         put("log", buildJsonObject { put("loglevel", st.logLevel) })
         put("dns", dns(st))
         put("inbounds", inbounds(st, tun))
@@ -82,7 +82,7 @@ object XrayConfigBuilder {
             put("system", buildJsonObject { put("statsInboundUplink", true); put("statsInboundDownlink", true)
                 put("statsOutboundUplink", true); put("statsOutboundDownlink", true) })
         })
-        put("routing", routing(st))
+        put("routing", routing(st, withGeoRules))
     }.toString()
 
     private fun strs(l: List<String>) = buildJsonArray { l.forEach { add(it.trim()) } }
@@ -102,6 +102,9 @@ object XrayConfigBuilder {
             })
             add(buildJsonObject { put("address", "localhost") })
         })
+        // With IPv6 off, a resolver that returns AAAA records can still hand the core an IPv6 address to
+        // connect to, which the block rule then drops - a connection that looks like a timeout. Ask for
+        // IPv4 answers explicitly so a blocked IPv6 never becomes a mystery failure.
         put("queryStrategy", st.dnsStrategy.ifEmpty { if (st.ipv6) "UseIP" else "UseIPv4" })
         put("disableCache", !st.dnsCache)
         // PositiveTTL only takes effect with caching on; sending it with disableCache is rejected by the core.
@@ -228,14 +231,27 @@ object XrayConfigBuilder {
         if (doms.isNotEmpty()) add(rule(out, domain = doms)); if (ips.isNotEmpty()) add(rule(out, ip = ips))
     }
 
-    private fun routing(st: AppSettings) = buildJsonObject {
+    /**
+     * `withGeoRules = false` builds a config that references NO geo data, for the case where the data files
+     * could not be downloaded. Every rule that would need them is dropped rather than emitted and rejected:
+     * a config containing geosite:category-ads-all when the .dat file is missing is refused by the core,
+     * so keeping them would mean not connecting at all. `geoip:private` is always kept - the core ships it.
+     */
+    private fun routing(st: AppSettings, withGeoRules: Boolean = true) = buildJsonObject {
         put("domainStrategy", routingStrategy(st))
         put("rules", buildJsonArray {
+            // IPv6 off must mean BLOCKED, not absent. The tun always carries ::/0 now (see buildTun), so
+            // without this rule every IPv6 destination is captured by the tunnel and then fails in
+            // whatever way the protocol happens to - which is not the same as being blocked. It is FIRST
+            // among the built-ins so no user or preset rule can capture it earlier and send IPv6 straight
+            // out of the tunnel. Needs no data file, so it survives withGeoRules = false.
+            if (!st.ipv6) add(rule("block", ip = listOf("::/0")))
             runCatching { Json.parseToJsonElement(st.customRules).jsonArray }.getOrNull()?.forEach { add(it) }   // user rules win
             userRule("block", st.blockRules); userRule("proxy", st.proxyRules); userRule("direct", st.directRules)
-            if (st.blockAds) add(rule("block", domain = listOf("geosite:category-ads-all")))
+            if (withGeoRules && st.blockAds) add(rule("block", domain = listOf("geosite:category-ads-all")))
+            // Built into the core, so it never needs a .dat file.
             add(rule("direct", ip = listOf("geoip:private")))
-            when (st.routingPreset) {
+            if (withGeoRules) when (st.routingPreset) {
                 "bypassIran" -> { add(rule("direct", domain = listOf("geosite:category-ir"))); add(rule("direct", ip = listOf("geoip:ir"))) }
                 "bypassChina" -> { add(rule("direct", domain = listOf("geosite:cn"))); add(rule("direct", ip = listOf("geoip:cn"))) }
                 "bypassRussia" -> { add(rule("direct", domain = listOf("geosite:category-ru"))); add(rule("direct", ip = listOf("geoip:ru"))) }

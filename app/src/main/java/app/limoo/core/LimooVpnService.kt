@@ -62,6 +62,12 @@ class LimooVpnService : VpnService() {
         val trafficExact = MutableStateFlow(false)
         /** Kill switch engaged: the tunnel is held open with no core behind it, so all traffic is dropped. */
         val blocked = MutableStateFlow(false)
+        /**
+         * Connected, but the geo data files were unavailable so geo-dependent rules were DROPPED. The
+         * tunnel works; the routing preset does not. Surfaced so the UI can say so, because silently
+         * ignoring a routing preset is worse than not offering it.
+         */
+        val geoUnavailable = MutableStateFlow(false)
 
         /** Locale.US on purpose: Persian/Arabic locales format digits the dot-matrix font cannot draw. */
         fun fmtBytes(b: Long): String {
@@ -213,13 +219,29 @@ class LimooVpnService : VpnService() {
                     // the core was never asked, which is the point.
                     throw IllegalStateException(bad.joinToString("\n"))
                 }
-                if (!GeoManager.ensure(applicationContext, st.geoSource, if (st.geoAutoUpdate) 7 else Long.MAX_VALUE))
-                    throw IllegalStateException("Routing data (geoip/geosite) is missing and could not be downloaded. Check the connection and retry.")
+                // Geo data is only REQUIRED when the config actually references geosite:/geoip:. The
+                // "global" preset and a fresh install with no rules need nothing, and refusing to connect
+                // on that basis meant a new user - often on exactly the constrained network where GitHub
+                // and jsDelivr are unreachable - could not tunnel at all. Note geoip:private is built into
+                // the core and needs no file, so it does not count.
+                // Whether the config will reference geo data at all, and if not, whether it was dropped.
+                var geoDropped = false
+                val needsGeo = ConfigNeedsGeo.check(st)
+                if (needsGeo && !GeoManager.ensure(applicationContext, st.geoSource, if (st.geoAutoUpdate) 7 else Long.MAX_VALUE)) {
+                    Crash.log("routing data missing; connecting without geo rules", null)
+                    // Fall back to a config with no geo rules rather than failing outright. The tunnel is
+                    // far more useful unrouted than not connected, and the log records what was dropped.
+                    geoDropped = true
+                }
                 if (st.mode == "vpn") { trackNetwork(true); tun = buildTun(st) ?: throw IllegalStateException("VPN permission was revoked") }
                 else { unregisterNetwork(); tun = null }
                 if (held != null && held !== tun) runCatching { held.close() }
                 blocked.value = false
-                engine.start(XrayConfigBuilder.build(server, st, tun != null), tun?.fd ?: -1, st)
+                geoUnavailable.value = geoDropped
+                engine.start(
+                    XrayConfigBuilder.build(server, st, tun != null, withGeoRules = !geoDropped),
+                    tun?.fd ?: -1, st
+                )
                 serverName.value = server.name; serverId = server.id
                 connectedAt.value = System.currentTimeMillis(); store.touch(server.id)
                 state.value = State.Connected
@@ -233,7 +255,12 @@ class LimooVpnService : VpnService() {
     private fun buildTun(st: AppSettings): ParcelFileDescriptor? {
         val b = Builder().setSession("Limoo").setMtu(st.mtu).setMetered(false)
             .addAddress("10.10.14.1", 30).addRoute("0.0.0.0", 0).addDnsServer(st.vpnDns)
-        if (st.ipv6) b.addAddress("fd00:10:14::1", 126).addRoute("::", 0)
+        // The IPv6 route is added ALWAYS, even when the user turned IPv6 off. Without ::/0 in the tun,
+        // Android routes IPv6 traffic around the tunnel on a dual-stack network, so apps reach IPv6
+        // destinations directly - the exact leak the "IPv6" switch appears to prevent. Instead of leaving
+        // a hole, the address and route are always installed and IPv6-off is enforced by a routing rule
+        // that blocks ::/0 (see routing()). Turning the setting off now means "blocked", not "leaked".
+        b.addAddress("fd00:10:14::1", 126).addRoute("::", 0)
         when (st.perAppMode) {
             "allow" -> st.perApp.forEach { runCatching { b.addAllowedApplication(it) } }
             "deny" -> st.perApp.forEach { runCatching { b.addDisallowedApplication(it) } }
@@ -400,7 +427,7 @@ class LimooVpnService : VpnService() {
     }
 
     private fun fail(msg: String) {
-        error.value = msg; state.value = State.Error
+        error.value = msg; state.value = State.Error; geoUnavailable.value = false
         // Persist the reason too. `error` only lives in memory, so the explanation was gone once the
         // process died - and a connect failure with no trace is the hardest kind to report. The raw
         // message is stored verbatim; nothing is added that could contain the config or credentials.
