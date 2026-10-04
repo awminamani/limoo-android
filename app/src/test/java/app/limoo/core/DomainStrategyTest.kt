@@ -140,8 +140,11 @@ class DomainStrategyTest {
     fun `direct outbound keeps its shape while omitting the strategy`() {
         val obs = outbounds(XrayConfigBuilder.build(server, AppSettings()))
         val direct = obs.single { it["tag"]!!.jsonPrimitive.content == "direct" }
-        assertEquals(2, direct.size)
-        assertTrue(direct.containsKey("settings"))
+        // Exactly these three keys. Asserting the key SET rather than a count is what makes this a
+        // real guard: the point is that domainStrategy is gone while tag/protocol/settings survive, so
+        // a fix cannot quietly pass by deleting the outbound or by dropping its settings object.
+        assertEquals(setOf("tag", "protocol", "settings"), direct.keys)
         assertEquals("freedom", direct["protocol"]!!.jsonPrimitive.content)
+        assertEquals(0, direct["settings"]!!.jsonObject.size)   // present, and empty
     }
 }
