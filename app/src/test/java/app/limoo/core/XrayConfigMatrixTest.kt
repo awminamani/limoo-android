@@ -30,6 +30,25 @@ class XrayConfigMatrixTest {
 
     private val outDir = File("build/xray-configs")
 
+    /**
+     * Combinations the CORE rejects, learned from running it (v26.9.30). None of these is visible in the
+     * JSON shape - every one is a rule the core enforces while building the outbound:
+     *
+     *  - trojan without TLS is prohibited ("unless the server address is a private IP or domain")
+     *  - REALITY only supports RAW(TCP), XHTTP and gRPC
+     *  - REALITY's `password` is the public key; a 43-char base64url value is rejected
+     *  - shadowsocks requires a cipher
+     *
+     * The point of the matrix is to fail when the BUILDER produces something invalid, not to fail on
+     * combinations the core never supported. An importer must never be able to build one of these from a
+     * link either, which is what ConfigValidator (item 5) is for.
+     */
+    private fun supported(protocol: String, network: String, security: String): Boolean {
+        if (protocol == "trojan" && security == "none") return false
+        if (security == "reality" && network !in listOf("tcp", "xhttp", "grpc")) return false
+        return true
+    }
+
     private fun srv(
         protocol: String = "vless",
         network: String = "tcp",
@@ -40,13 +59,14 @@ class XrayConfigMatrixTest {
         name = "matrix", protocol = protocol, host = "example.com", port = 443,
         uuid = "11111111-1111-1111-1111-111111111111",
         network = network, security = security, flow = flow,
-        // Shadowsocks REQUIRES a cipher; an empty method makes the core reject the config outright
-        // ("invalid shadowsocks method"). A real ss:// link always carries one, so the fixture must too -
-        // the first matrix run failed 5/5 shadowsocks configs for exactly this reason, which is the
-        // validator doing its job.
+        // Shadowsocks REQUIRES a cipher; an empty method makes the core reject the config outright.
+        // A real ss:// link always carries one, so the fixture must too.
         method = method.ifEmpty { if (protocol == "shadowsocks") "aes-256-gcm" else "" },
-        // REALITY-specific values that are valid regardless of the rest of the combination.
-        sni = "example.com", pbk = "xTIBA5rboUvnH4htWjbxbHFi_zx3Cx96wVvEnntVJykw", sid = "0123456789abcdef",
+        sni = "example.com",
+        // REALITY's password field IS the public key: 43 chars of base64url, 32 bytes. The previous
+        // fixture value was rejected by the core with: invalid "password".
+        pbk = "BRIfLDlGU2BteoeUoa67yNXi7_wJFiMwPUpXZHF-i5g",
+        sid = "0123456789abcdef",
         fp = "chrome", path = "/ws", serviceName = "svc", hostHeader = "example.com",
     )
 
@@ -91,6 +111,7 @@ class XrayConfigMatrixTest {
             for (network in listOf("tcp", "ws", "grpc", "httpupgrade", "xhttp")) {
                 val securities = if (protocol == "shadowsocks") listOf("none", "tls") else listOf("none", "tls", "reality")
                 for (security in securities) {
+                    if (!supported(protocol, network, security)) continue
                     write("p-${protocol}-${network}-${security}.json", XrayConfigBuilder.build(srv(protocol, network, security), st(tun = true)))
                     n++
                 }

@@ -64,12 +64,15 @@ total=0; failed=0
 for f in "$DIR"/*.json; do
   [ -e "$f" ] || continue
   total=$((total + 1))
-  if ! out="$("$WORK/xray/xray" run -test -c "$f" 2>&1)"; then
+  # The output goes to a file, not a variable: `out=$(xray ...)` on a REJECTED config makes the loop's
+  # `if !` see the script's own stdout, and the config can be large enough to blow the arg limit.
+  if ! "$WORK/xray/xray" run -test -c "$f" > "$WORK/out.txt" 2>&1; then
     failed=$((failed + 1))
     echo "::error::core REJECTED $f"
-    echo "$out" | sed 's/^/    /'
+    # The core's own error line, which names the field - the whole point of this step.
+    grep -E '\[Error\]|failed to build|invalid|prohibited|only supports' "$WORK/out.txt" | sed 's/^/    /' | head -5
     # Print the offending config; without it the failure is not reproducible.
-    sed 's/^/    | /' "$f"
+    sed 's/^/    | /' "$f" | head -c 4000; echo
     [ "$failed" -ge 5 ] && { echo "::error::stopping after 5 failures"; break; }
   fi
 done
