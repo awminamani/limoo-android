@@ -20,14 +20,27 @@ object Crash {
     /** Set by the Application so helpers can log without a Context. */
     @Volatile var appContext: Context? = null
 
+    /**
+     * When true, free-text log lines are run through Redact.message() before being written. Set by the
+     * Application from the privacy-mode setting.
+     *
+     * This is the last line of defence, and it exists because the log is written from everywhere:
+     * a core error quotes the config back at you, a stack trace carries whatever was on the stack, and a
+     * subscription URL is a bearer token. Redaction at the call sites alone would miss the ones nobody
+     * remembered - which is all of the new ones.
+     */
+    @Volatile var redactMessages: Boolean = false
+
+    private fun clean(s: String): String = if (redactMessages) Redact.message(s) else s
+
     fun log(where: String, t: Throwable?) {
         try {
             val ctx = appContext ?: return
             val sb = StringBuilder()
-            sb.append(System.currentTimeMillis()).append("  ").append(where).append(NL)
+            sb.append(System.currentTimeMillis()).append("  ").append(clean(where)).append(NL)
             if (t != null) {
-                sb.append(t.javaClass.name).append(": ").append(t.message ?: "").append(NL)
-                sb.append(Log.getStackTraceString(t).take(MAX)).append(NL)
+                sb.append(t.javaClass.name).append(": ").append(clean(t.message ?: "")).append(NL)
+                sb.append(clean(Log.getStackTraceString(t)).take(MAX)).append(NL)
             }
             val f = File(ctx.filesDir, FILE)
             // Rotate. The file was only ever READ back as its last MAX chars, but it was APPENDED to

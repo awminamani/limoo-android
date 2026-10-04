@@ -33,6 +33,13 @@ class LimooApp : Application() {
     override fun onCreate() {
         super.onCreate()
         app.limoo.core.Crash.appContext = applicationContext
+        // Privacy mode also governs what the log is allowed to contain. Set once here and re-applied
+        // whenever the setting changes, so the flag cannot drift from the UI.
+        app.limoo.core.Crash.redactMessages = runCatching {
+            val sp = getSharedPreferences("limoo", MODE_PRIVATE)
+            val raw = sp.getString("settings", "{}")
+            raw != null && raw.contains("\"privacyMode\":true")
+        }.getOrDefault(false)
         // Record the fatal exception before the process dies: the file survives the crash and is shown
         // on the next launch, so a connect crash can be identified without logcat.
         val prev = Thread.getDefaultUncaughtExceptionHandler()
@@ -218,7 +225,11 @@ class Store(ctx: Context) {
     suspend fun autoSelectBest(real: Boolean = false) { pingAll(real = real); servers.value.filter { it.pingMs > 0 }.minByOrNull { it.pingMs }?.let { select(it.id) } }
 
     fun update(f: (AppSettings) -> AppSettings) {
-        settings.value = f(settings.value); persist()
+        val next = f(settings.value)
+        settings.value = next; persist()
+        // Privacy mode decides what may be logged, so it has to follow the setting rather than being read
+        // once at startup and silently going stale.
+        app.limoo.core.Crash.redactMessages = next.privacyMode
     }
 
     // ---------- subscriptions ----------

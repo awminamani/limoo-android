@@ -48,6 +48,9 @@ class LimooVpnService : VpnService() {
             svc.reconnectInPlace()
         }
         private const val NOTIF_ID = 1
+        /** Separate from NOTIF_ID so a failure notice cannot overwrite the ongoing notification. */
+        private const val FAIL_NOTIF_ID = 2
+        private const val CHANNEL_FAIL = "limoo_failures"
         private const val CHANNEL = "limoo"
         val state = MutableStateFlow(State.Idle); val error = MutableStateFlow<String?>(null)
         val connectedAt = MutableStateFlow(0L) // epoch ms, 0 when not connected
@@ -188,6 +191,13 @@ class LimooVpnService : VpnService() {
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL, getString(R.string.channel_name), NotificationManager.IMPORTANCE_LOW).apply {
                 setShowBadge(false); enableVibration(false); setSound(null, null)
+            },
+        )
+        // Failures get their own channel so they can be DEFAULT importance - a silent failure notice is
+        // indistinguishable from no notice at all. The ongoing channel stays silent.
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_FAIL, "Connection failures", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                setShowBadge(true); enableVibration(true)
             },
         )
         // startForeground() must not throw - it is on the connect path. minimalForeground() is the fallback.
@@ -462,6 +472,29 @@ class LimooVpnService : VpnService() {
         val t = tun; tun = null
         // Record the teardown so a reconnect can wait for the core to actually let go before starting again.
         stopJob = scope.launch { runCatching { engine.stop() }; runCatching { t?.close() } }
+        // A failure must be visible without opening the app. stopForeground(STOP_FOREGROUND_REMOVE) deletes
+        // the ongoing notification, so after this the only trace was in-process `error` - gone once the
+        // app was killed. A separate, non-ongoing notification under its own id survives stopSelf() and is
+        // swipeable. Different id on purpose: reusing NOTIF_ID would overwrite (and thereby delete) the
+        // ongoing notification we just removed.
+        if (keepError) {
+            val reason = error.value?.lineSequence()?.firstOrNull { it.isNotBlank() } ?: "Connection failed"
+            runCatching {
+                nm.notify(
+                    FAIL_NOTIF_ID,
+                    Notification.Builder(this, CHANNEL_FAIL)
+                        .setSmallIcon(R.drawable.ic_stat)
+                        .setContentTitle("Limoo - connection failed")
+                        .setContentText(ErrorHints.title(error.value) ?: reason.take(120))
+                        .setStyle(Notification.BigTextStyle().bigText(ErrorHints.forError(error.value)?.detail ?: reason))
+                        .setAutoCancel(true)
+                        .build()
+                )
+            }
+        } else {
+            // Only clear a previous failure when this teardown is not itself a failure.
+            runCatching { nm.cancel(FAIL_NOTIF_ID) }
+        }
         if (!stayAlive) { stopJob = null; stopSelf() }
     }
 
