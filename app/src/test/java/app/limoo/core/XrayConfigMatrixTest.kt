@@ -31,20 +31,23 @@ class XrayConfigMatrixTest {
     private val outDir = File("build/xray-configs")
 
     /**
-     * Combinations the CORE rejects, learned from running it (v26.9.30). None of these is visible in the
-     * JSON shape - every one is a rule the core enforces while building the outbound:
+     * Combinations the CORE rejects, learned by running it (v26.9.30) - not from memory. None of these
+     * is visible in the JSON shape; each is a rule the core enforces while building the outbound:
      *
-     *  - trojan without TLS is prohibited ("unless the server address is a private IP or domain")
+     *  - vless without TLS or REALITY is "prohibited unless the server address is a private IP"
+     *  - trojan without TLS is prohibited by the same rule
      *  - REALITY only supports RAW(TCP), XHTTP and gRPC
-     *  - REALITY's `password` is the public key; a 43-char base64url value is rejected
+     *  - REALITY's `password` field IS the public key: 43 chars of base64url = 32 bytes
      *  - shadowsocks requires a cipher
      *
-     * The point of the matrix is to fail when the BUILDER produces something invalid, not to fail on
-     * combinations the core never supported. An importer must never be able to build one of these from a
-     * link either, which is what ConfigValidator (item 5) is for.
+     * The matrix exists to fail when the BUILDER emits something invalid, not to fail on combinations
+     * the core never supported. Note these are all user-reachable: an imported link with
+     * vless+none or REALITY-over-websocket builds a config the core will never accept. Rejecting that at
+     * import time is ConfigValidator's job (item 5).
      */
     private fun supported(protocol: String, network: String, security: String): Boolean {
-        if (protocol == "trojan" && security == "none") return false
+        // VLESS and Trojan both require an encrypted transport in v26.
+        if (protocol in listOf("vless", "trojan") && security !in listOf("tls", "reality")) return false
         if (security == "reality" && network !in listOf("tcp", "xhttp", "grpc")) return false
         return true
     }
