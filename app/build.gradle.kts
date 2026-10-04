@@ -85,9 +85,11 @@ tasks.register("fetchXrayCore") {
         // a different core.
         val want = coreSha256.trim()
         if (want.isNotEmpty()) {
+            // Named lambda parameter, not `it`: inside a Gradle doLast the implicit receiver makes a
+            // bare `it` resolve against the task rather than the byte being formatted.
             val got = java.security.MessageDigest.getInstance("SHA-256")
-                .digest(tmp.inputStream().use { it.readBytes() })
-                .joinToString("") { "%02x".format(it) }
+                .digest(tmp.inputStream().use { s -> s.readBytes() })
+                .joinToString("") { b -> "%02x".format(b) }
             if (!got.equals(want, ignoreCase = true)) {
                 tmp.delete()
                 throw GradleException("libv2ray.aar digest mismatch.\n  expected sha256 $want\n  actual   sha256 $got\nThe pinned core was replaced or the download was corrupted. Refusing to build.")
