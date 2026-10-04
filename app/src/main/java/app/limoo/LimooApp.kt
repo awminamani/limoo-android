@@ -133,7 +133,19 @@ class Store(ctx: Context) {
         servers.update { l -> l.filter { if (seen.add(key(it))) true else { n++; false } } }; if (n > 0) persist(); return n
     }
 
-    fun removeDead(): Int { val dead = servers.value.filter { it.pingMs == 0L }.map { it.id }.toSet(); if (dead.isNotEmpty()) removeMany(dead); return dead.size }
+    /**
+     * Deletes servers that are genuinely unreachable - that is, BOTH probe kinds failed with a real
+     * timeout. A server whose probe merely could not run ([Latency.UNKNOWN]) is kept: deleting on
+     * "we could not measure this" is indistinguishable from deleting a working server the moment a
+     * probe feature is unavailable, which is what the old pingMs == 0 check did.
+     */
+    fun removeDead(): Int {
+        val dead = servers.value.filter { s ->
+            s.pingMs == Latency.TIMEOUT && s.tcpMs == Latency.TIMEOUT
+        }.map { it.id }.toSet()
+        if (dead.isNotEmpty()) removeMany(dead)
+        return dead.size
+    }
 
     /**
      * Latency test. ids == null tests everything. Real mode uses the core's own probe (slower, accurate).
@@ -154,23 +166,45 @@ class Store(ctx: Context) {
                 val sem = Semaphore(if (real) 2 else 8)
                 targets.map { s ->
                     async {
-                        val ms = sem.withPermit { if (real) pingReal(s, st) else Latency.tcp(s, st.pingTimeoutMs) }
-                        s.id to ms
+                        // Always measure TCP, even in real mode. Real mode's own fallback swallowed the
+                        // distinction between "probe unsupported" and "timed out", so a server that the
+                        // core probe could not judge was recorded as a hard 0 - and a hard 0 is what
+                        // removeDead() deletes on. Measuring both keeps that decision honest.
+                        val realMs = if (real) sem.withPermit { pingReal(s, st) } else Latency.UNKNOWN
+                        val tcpMs = sem.withPermit { Latency.tcp(s, st.pingTimeoutMs) }
+                        s.id to (realMs to tcpMs)
                     }
                 }.awaitAll()
             }
             val byId = results.toMap()
-            servers.update { l -> l.map { byId[it.id]?.let { m -> it.copy(pingMs = m) } ?: it } }
+            servers.update { l ->
+                l.map { s ->
+                    byId[s.id]?.let { (realMs, tcpMs) ->
+                        // Prefer the real measurement; fall back to TCP only when the probe could not
+                        // run. UNKNOWN is preserved as UNKNOWN so the UI can say "not measured" instead
+                        // of drawing a dead server.
+                        s.copy(
+                            pingMs = if (realMs > 0) realMs else tcpMs,
+                            tcpMs = tcpMs,
+                        )
+                    } ?: s
+                }
+            }
             persist()
         } finally {
             pinging.update { it - targets.map { s -> s.id }.toSet() }
         }
     }
 
-    /** Real delay, falling back to TCP when the core probe is unavailable (-1) or fails (0). */
+    /**
+     * Real delay via the core probe. Returns [Latency.UNKNOWN] when the probe could not run at all
+     * (unsupported core, no URL), [Latency.TIMEOUT] when it ran and the server did not answer, or a
+     * positive latency. A TCP fallback is NOT applied here: the caller measures TCP separately so the
+     * two signals stay distinguishable.
+     */
     private suspend fun pingReal(s: Server, st: AppSettings): Long {
         val ms = Latency.real(appContext, s, st, st.testUrl)
-        return if (ms > 0) ms else if (ms == 0L) 0L else Latency.tcp(s, st.pingTimeoutMs)
+        return if (ms > 0) ms else if (ms == Latency.TIMEOUT) Latency.TIMEOUT else Latency.UNKNOWN
     }
 
     suspend fun autoSelectBest(real: Boolean = false) { pingAll(real = real); servers.value.filter { it.pingMs > 0 }.minByOrNull { it.pingMs }?.let { select(it.id) } }

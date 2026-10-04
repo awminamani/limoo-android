@@ -16,6 +16,11 @@ data class Server(
     val pbk: String = "", val sid: String = "", val spx: String = "",
     val allowInsecure: Boolean = false,
     val group: String = "", val note: String = "", val pingMs: Long = -1,
+    /**
+     * TCP-connect result, kept separately from [pingMs] so "remove unreachable" can require BOTH to
+     * have genuinely timed out. -1 = not measured yet, 0 = real timeout, >0 = ms.
+     */
+    val tcpMs: Long = -1,
     val fav: Boolean = false, val lastUsed: Long = 0, val subId: String = "",
 )
 
