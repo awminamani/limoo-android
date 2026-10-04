@@ -56,7 +56,8 @@ class SecurePrefsPolicyTest {
             override fun putFloat(key: String?, v: Float) = also { if (key != null) pending[key] = v }
             override fun putBoolean(key: String?, v: Boolean) = also { if (key != null) pending[key] = v }
             override fun remove(key: String?) = also { key?.let { drops.add(it); pending.remove(it) } }
-            override fun clear() = also { map.clear() }
+            // clear() returns Unit in the interface, so `also { }` would infer Editor here.
+            override fun clear() { map.clear() }
             override fun commit(): Boolean = also { pending.forEach { (k, v) -> map[k] = v }; pending.clear(); true }
             override fun apply() { commit() }
         }
