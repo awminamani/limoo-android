@@ -9,10 +9,17 @@ on:
 permissions:
   contents: write   # required to create GitHub Releases
 
+# A new push to the same branch cancels the run it supersedes, so a fix-then-push
+# loop never queues behind its own stale builds.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build debug + release APK
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -63,7 +70,11 @@ jobs:
 
       - name: Fetch Xray core
         run: ./gradlew fetchXrayCore --no-daemon
-        continue-on-error: true
+
+      # Tests run BEFORE any packaging. A config bug should fail in seconds, not after a full
+      # release build; and each packaging step stands alone so one failure cannot mask the other.
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
 
       - name: Assemble debug
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
@@ -71,8 +82,36 @@ jobs:
       - name: Assemble release
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
-      - name: Unit tests
-        run: ./gradlew :app:testDebugUnitTest --no-daemon
+      # The AAR is fetched with an unpinned `releases/latest` URL, so every build can pull a
+      # DIFFERENT Xray core. Print what we actually got and its digest, so a config failure can be
+      # tied to the core version that produced it.
+      - name: Report the pinned Xray core
+        run: |
+          echo "limoo.coreUrl: $(grep -E '^limoo.coreUrl' gradle.properties || echo '(unset)')"
+          echo "limoo.xrayVersion: $(grep -E '^limoo.xrayVersion' gradle.properties || echo '(unset)')"
+          if [ -f app/libs/libv2ray.aar ]; then
+            sha256sum app/libs/libv2ray.aar
+            ls -l app/libs/libv2ray.aar
+          else
+            echo '::error::app/libs/libv2ray.aar is missing - the APK would ship without an Xray core'
+            exit 1
+          fi
+
+      # An APK without the Go runtime is worse than a failed build: it installs, then cannot tunnel.
+      - name: Verify the core is actually inside the APK
+        run: |
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          unzip -l "$APK" > /tmp/apk.txt
+          if ! grep -qE 'lib/arm64-v8a/lib.*\.so' /tmp/apk.txt; then
+            echo '::error::No arm64-v8a native library in the release APK - the Xray core did not get packaged.'
+            grep -E '\.so' /tmp/apk.txt || echo '(no .so entries at all)'
+            exit 1
+          fi
+          echo 'core native library present in the release APK'
+
+      # Uploaded on if: always() so a RED run still hands over its test report and APK - which is
+      # exactly when you need them.
 
       # Fail the release if it is not signed with a real key. The step above already warns, but a warning
       # that shipped five broken releases is not a guard. apksigner prints the certificate the APK is
@@ -93,6 +132,26 @@ jobs:
             exit 1
           fi
           echo "release APK is signed with a real key"
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            app/build/reports/tests/**
+            app/build/test-results/**
+          if-no-files-found: warn
+
+      # The debug APK is kept separate from the release one so it can always be grabbed, including
+      # from a failed run, and so its name never collides with the signed release artifact.
+      - name: Upload debug APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: limoo-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
 
       - name: Upload APKs as workflow artifacts
         uses: actions/upload-artifact@v4
