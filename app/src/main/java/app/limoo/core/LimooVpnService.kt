@@ -194,6 +194,17 @@ class LimooVpnService : VpnService() {
                 // do silently on every connect, so it is skipped unless the user asked for it explicitly.
                 if (st.autoSelect && !st.batterySaver) store.autoSelectBest()
                 val server = store.selected() ?: throw IllegalStateException("No server selected")
+                // Validate BEFORE touching geo data, the tun, or the core. Xray rejects an unbuildable
+                // config with a sentence about JSON paths, and until now that was the only signal a user
+                // ever got. The rules behind these messages were found by running `xray run -test` over
+                // the generated matrix - they are enforced while the core BUILDS the config, so nothing
+                // in the JSON reveals them.
+                val bad = ConfigValidator.validate(server)
+                if (bad.isNotEmpty()) {
+                    // Plain, user-facing sentences. The raw core message is not available here because
+                    // the core was never asked, which is the point.
+                    throw IllegalStateException(bad.joinToString("\n"))
+                }
                 if (!GeoManager.ensure(applicationContext, st.geoSource, if (st.geoAutoUpdate) 7 else Long.MAX_VALUE))
                     throw IllegalStateException("Routing data (geoip/geosite) is missing and could not be downloaded. Check the connection and retry.")
                 if (st.mode == "vpn") { trackNetwork(true); tun = buildTun(st) ?: throw IllegalStateException("VPN permission was revoked") }
