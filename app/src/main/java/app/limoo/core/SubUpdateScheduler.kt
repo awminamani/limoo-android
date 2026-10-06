@@ -35,38 +35,64 @@ object SubUpdateScheduler {
     /** Android will not honour a repeating interval shorter than this. */
     const val MIN_MINUTES = 15L
 
-    /** No surface for the exact interval, so the UI shows the preset instead. */
-    private const val SCHEDULE_INSECTS = AlarmManager.INTERVAL_HOUR
+    /** Prefs slot holding the (enabled, interval) pair the alarm was last armed with. */
+    private const val ARMED = "sub_update_armed"
+    /** Epoch ms of the last completed refresh, so a short repeat window can skip the ticks it does not need. */
+    private const val LAST = "sub_update_last"
 
+    /**
+     * The alarm's repeat window, in ms.
+     *
+     * Pure and unit-tested: this is the value the old code got wrong by multiplying
+     * `AlarmManager.INTERVAL_HOUR` (3_600_000) by 1000, which produced a ~41-day window, so the
+     * repeating alarm effectively never repeated and the user's interval was ignored entirely.
+     */
+    fun intervalMs(minutes: Int): Long =
+        minutes.coerceAtLeast(MIN_MINUTES.toInt()).toLong() * 60_000L
+
+    /**
+     * Arm (or leave alone) the periodic refresh.
+     *
+     * Idempotent on purpose: this runs from `Application.onCreate`, so the old unconditional
+     * `cancel` + re-arm pushed the first run `interval` into the future on every process start — opening
+     * the app often meant the refresh never came due. Now the alarm is only touched when the
+     * `(enabled, interval)` pair actually differs from what was last armed.
+     */
     fun apply(ctx: Context, st: AppSettings) {
         val am = ctx.getSystemService(AlarmManager::class.java) ?: return
-        val pi = pending(ctx)
-        am.cancel(pi)
-        if (!st.subAutoUpdate) return
-        // INTERVAL_HOUR as the tick; `st.subUpdateIntervalMin` decides how many ticks are skipped by
-        // rescheduling with the stored elapsed-realtime anchor rather than relying on a sub-hour repeat.
-        val at = SystemClock.elapsedRealtime() + (st.subUpdateIntervalMin.coerceAtLeast(MIN_MINUTES.toInt()) * 60_000L)
-        runCatching { am.setInexactRepeating(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, intervalMs(st), pi) }
+        val wanted = "${st.subAutoUpdate}:${intervalMs(st.subUpdateIntervalMin)}"
+        val existing = pending(ctx, PendingIntent.FLAG_NO_CREATE)
+        val prefs = ctx.getSharedPreferences("limoo_core", Context.MODE_PRIVATE)
+
+        // Already armed with this exact configuration and the alarm still exists: nothing to do.
+        if (prefs.getString(ARMED, null) == wanted && (existing != null || !st.subAutoUpdate)) return
+
+        if (existing != null) am.cancel(existing)
+        if (!st.subAutoUpdate) {
+            prefs.edit().putString(ARMED, wanted).apply()
+            return
+        }
+        val pi = pending(ctx, PendingIntent.FLAG_UPDATE_CURRENT) ?: return
+        val at = SystemClock.elapsedRealtime() + intervalMs(st.subUpdateIntervalMin)
+        runCatching { am.setInexactRepeating(AlarmManager.ELAPSED_REALTIME_WAKEUP, at, intervalMs(st.subUpdateIntervalMin), pi) }
+        prefs.edit().putString(ARMED, wanted).apply()
+    }
+
+    fun cancel(ctx: Context) {
+        ctx.getSystemService(AlarmManager::class.java)?.cancel(pending(ctx, PendingIntent.FLAG_UPDATE_CURRENT) ?: return)
+        ctx.getSharedPreferences("limoo_core", Context.MODE_PRIVATE).edit().remove(ARMED).apply()
     }
 
     /**
-     * The repeat window. `setInexactRepeating` ignores anything under 60 s anyway; for the 15-minute floor we
-     * ask for hourly ticks and simply skip the ones that are not yet due, checked in [refreshIfDue].
+     * The alarm's PendingIntent, or null under [PendingIntent.FLAG_NO_CREATE] when it was never armed
+     * (which is how [apply] tells "already scheduled" from "cancelled since we last looked").
      */
-    private fun intervalMs(st: AppSettings): Long = maxOf(SCHEDULE_INSECTS * 1000L, st.subUpdateIntervalMin.coerceAtLeast(MIN_MINUTES.toInt()) * 60_000L)
-
-    fun cancel(ctx: Context) {
-        ctx.getSystemService(AlarmManager::class.java)?.cancel(pending(ctx))
-    }
-
-    private fun pending(ctx: Context): PendingIntent = PendingIntent.getBroadcast(
+    private fun pending(ctx: Context, flag: Int): PendingIntent? = PendingIntent.getBroadcast(
         ctx, RQ_CODE,
         Intent(ctx, SubUpdateReceiver::class.java).setAction(ACTION).setPackage(ctx.packageName),
-        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        PendingIntent.FLAG_IMMUTABLE or flag,
     )
 
-    /** Epoch ms of the last completed refresh, so a short repeat window can skip the ticks it does not need. */
-    private const val LAST = "sub_update_last"
     private fun lastRun(ctx: Context): Long = ctx.getSharedPreferences("limoo_core", Context.MODE_PRIVATE).getLong(LAST, 0L)
     private fun markRun(ctx: Context) {
         ctx.getSharedPreferences("limoo_core", Context.MODE_PRIVATE).edit().putLong(LAST, System.currentTimeMillis()).apply()
@@ -79,10 +105,9 @@ object SubUpdateScheduler {
      * Returns the number of subscriptions refreshed.
      */
     suspend fun refreshIfDue(ctx: Context, st: AppSettings, force: Boolean = false): Int {
-        val intervalMs = st.subUpdateIntervalMin.coerceAtLeast(MIN_MINUTES.toInt()) * 60_000L
         val last = lastRun(ctx)
         val now = System.currentTimeMillis()
-        if (!force && last > 0 && now - last < intervalMs) return 0
+        if (!force && last > 0 && now - last < intervalMs(st.subUpdateIntervalMin)) return 0
         val app = ctx.applicationContext as? LimooApp ?: return 0
         // refreshAll() applies the per-subscription flag and reports failures into the subscription record,
         // so a dead link is visible in the subscriptions sheet rather than silently retried forever.
@@ -116,5 +141,31 @@ class SubUpdateReceiver : BroadcastReceiver() {
                 runCatching { pending.finish() }
             }
         }
+    }
+}
+
+/**
+ * Re-arms the periodic refresh after the device reboots or the app is replaced.
+ *
+ * AlarmManager drops every alarm when the device powers off, and an app update replaces the
+ * PendingIntent's target. Without this receiver the auto-update silently stopped after a reboot until the
+ * user happened to open the app — which, for a tool whose whole point is a fresh server list, means it
+ * effectively never ran. `RECEIVE_BOOT_COMPLETED` is a normal permission, granted at install.
+ *
+ * `onReceive` is deliberately synchronous: `apply()` only touches AlarmManager and a prefs slot, and the
+ * store is already constructed by `Application.onCreate` before any receiver runs.
+ */
+class BootReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        when (intent.action) {
+            Intent.ACTION_BOOT_COMPLETED,
+            Intent.ACTION_MY_PACKAGE_REPLACED,
+            Intent.ACTION_LOCKED_BOOT_COMPLETED,
+            -> Unit
+            else -> return
+        }
+        val app = context.applicationContext as? LimooApp ?: return
+        runCatching { SubUpdateScheduler.apply(app, app.store.settings.value) }
+            .onFailure { Crash.log("sub auto update re-arm", it) }
     }
 }
