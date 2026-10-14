@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
+import app.limoo.Armio
 import app.limoo.LimooApp
 import app.limoo.Store
 import app.limoo.core.GeoManager
@@ -71,7 +72,7 @@ class MainActivity : ComponentActivity() {
         Actions(
             toggle = ::toggle, reconnect = ::reconnect,
             pasteImport = ::pasteImport, pickFile = { filePicker.launch(arrayOf("*/*")) },
-            scan = { scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Scan a Limoo / VLESS / VMess QR").setBeepEnabled(false).setOrientationLocked(false)) },
+            scan = { scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("Scan an Armio / VLESS / VMess QR").setBeepEnabled(false).setOrientationLocked(false)) },
             peekClip = { clipText()?.let { t -> runCatching { Importer.parse(t, "CLIPBOARD") }.getOrNull() } },
             share = ::share, exportBackup = ::exportBackup,
             commitImport = ::commit, unlock = { p, pw -> open(p.raw, p.source, pw) },
@@ -146,6 +147,10 @@ class MainActivity : ComponentActivity() {
 
     /** Parses [text] and shows the import preview. */
     private fun open(text: String, source: String, password: String? = null) {
+        // Armio service build: configs arrive ONLY through the customer's own subscription
+        // (the SubsSheet form -> Store.addSubscription). Every other import path - clipboard,
+        // QR, file, deep link - funnels through this one function, so this is their shared gate.
+        if (Armio.SERVICE_MODE) { Ui.say("USE YOUR ARMIO SUBSCRIPTION LINK"); return }
         try {
             val p = Importer.parse(text, source, password)
             if (p == null) Ui.say("NO CONFIG FOUND") else { clipOffer = null; preview = p }
@@ -156,6 +161,7 @@ class MainActivity : ComponentActivity() {
 
     /** When Limoo comes to the front with something importable on the clipboard, offer it (never auto-imports). */
     private fun checkClipboard() {
+        if (Armio.SERVICE_MODE) { clipOffer = null; return }
         if (!store.settings.value.clipboardWatch) { clipOffer = null; return }
         val t = clipText()?.takeIf { it.isNotBlank() && it.length < 200_000 } ?: run { clipOffer = null; return }
         if (t.trim().hashCode() in dismissedClips) return
@@ -212,7 +218,7 @@ class MainActivity : ComponentActivity() {
         if (servers.isEmpty()) return Ui.say("NOTHING TO SHARE")
         val text = servers.joinToString("\n") { LinkBuilder.build(it) }
         getSystemService(ClipboardManager::class.java)
-            .setPrimaryClip(ClipData.newPlainText("Limoo links", text))
+            .setPrimaryClip(ClipData.newPlainText("Armio links", text))
         Ui.say(if (servers.size == 1) "LINK COPIED" else "${servers.size} LINKS COPIED")
     }
 
@@ -221,7 +227,7 @@ class MainActivity : ComponentActivity() {
         // A shared config carries the sender's look and their group name, but NOT their chosen image: a
         // content:// URI is meaningless on another device.
         send(LimooPayload(
-            name = name.ifBlank { "Limoo servers" }, note = note,
+            name = name.ifBlank { "Armio servers" }, note = note,
             expires = if (days > 0) System.currentTimeMillis() / 1000 + days * 86_400L else 0,
             servers = servers.map { it.copy(pingMs = -1, fav = false, lastUsed = 0, subId = "") },
             appearance = if (withLook) LimooFile.appearanceOf(store.settings.value) else null,
@@ -230,7 +236,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun exportBackup() = send(LimooPayload(
-        name = "Limoo backup", servers = store.servers.value.map { it.copy(pingMs = -1) },
+        name = "Armio backup", servers = store.servers.value.map { it.copy(pingMs = -1) },
         subscriptions = store.subs.value.map { it.url }, settings = store.settings.value,
         appearance = LimooFile.appearanceOf(store.settings.value),
     ), null, false)
@@ -241,7 +247,7 @@ class MainActivity : ComponentActivity() {
         val f = File(cacheDir, "share").apply { mkdirs() }.let { File(it, "${payload.name.replace(Regex("[^A-Za-z0-9_-]"), "_")}.${LimooFile.EXT}") }
         f.writeText(text)
         val uri = FileProvider.getUriForFile(this, "$packageName.files", f)
-        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType(LimooFile.MIME).putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share .limoo"))
+        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType(LimooFile.MIME).putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Share Armio file"))
     }
 
     // ---------- connection ----------

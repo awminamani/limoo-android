@@ -152,6 +152,12 @@ class LibXrayEngine(private val ctx: Context) : CoreEngine {
         (call(m, null, configJson, url) as Number).toLong()
     }.getOrDefault(-1L)
 
+    /** True when this AAR exposes measureOutboundDelay at all, i.e. real probes can run. */
+    fun delaySupported(): Boolean = runCatching {
+        statics()
+        LibCache.measureDelay != null
+    }.getOrDefault(false)
+
     /**
      * CoreController.queryAllOutboundTrafficStats() returns PLAIN TEXT, not JSON:
      *   `proxy,uplink,1234;proxy,downlink,56789;direct,downlink,42;`
@@ -204,6 +210,17 @@ object CoreDelay {
         if (!envReady) { e.ensureEnv(ctx); envReady = true }
         e.measureDelay(configJson, url)
     } catch (e: Throwable) { -1L }
+
+    /**
+     * Whether real delay probes can run on this core at all. Callers need this to keep the
+     * TIMEOUT/UNKNOWN contract honest: a failed probe on a supported core is evidence the server
+     * did not answer; on an unsupported core it is no evidence at all.
+     */
+    fun supported(ctx: Context): Boolean = try {
+        val e = engineFor(ctx)
+        if (!envReady) { e.ensureEnv(ctx); envReady = true }
+        e.delaySupported()
+    } catch (e: Throwable) { false }
 }
 
 /**

@@ -11,6 +11,19 @@ object LinkParser {
         return body.lineSequence().map { it.trim() }.mapNotNull { runCatching { parse(it) }.getOrNull() }.toList()
     }
 
+    /**
+     * Config lines [parseMany] has to drop because the protocol is not supported yet (TUIC,
+     * WireGuard/AmneziaWG, MTProto, Hysteria...). parseMany drops them silently, which made
+     * subscriptions look like they simply had fewer servers than in other clients. Callers surface
+     * this count so the user can see WHAT is missing instead of wondering. http(s) lines are
+     * subscription URLs, not configs, and socks:// lines are info placeholders - neither counts.
+     */
+    fun countUnsupported(text: String): Int {
+        val body = text.trim().let { if ("://" !in it) runCatching { String(Base64.decode(it, Base64.DEFAULT)) }.getOrDefault(it) else it }
+        val known = listOf("vless://", "vmess://", "trojan://", "ss://", "http://", "https://", "socks://")
+        return body.lineSequence().map { it.trim() }.count { l -> "://" in l && known.none { k -> l.startsWith(k) } }
+    }
+
     fun parse(l: String): Server? = when {
         l.startsWith("vless://") -> std(l, "vless")
         l.startsWith("trojan://") -> std(l, "trojan")
@@ -22,7 +35,7 @@ object LinkParser {
     private fun std(link: String, proto: String): Server {
         val u = Uri.parse(link); fun q(k: String) = u.getQueryParameter(k) ?: ""
         return Server(
-            name = u.fragment ?: "${u.host}:${u.port}", protocol = proto, host = u.host!!, port = u.port, uuid = u.userInfo ?: "",
+            name = u.fragment ?: "${u.host}:${u.port}", protocol = proto, host = u.host!!, port = if (u.port > 0) u.port else 443, uuid = u.userInfo ?: "",
             flow = q("flow"), network = q("type").ifEmpty { "tcp" },
             security = q("security").ifEmpty { if (proto == "trojan") "tls" else "none" },
             sni = q("sni"), alpn = q("alpn"), fp = q("fp").ifEmpty { "chrome" }, path = q("path"), hostHeader = q("host"),

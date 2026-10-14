@@ -27,6 +27,9 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Intent
+import android.net.Uri
+import app.limoo.Armio
 import app.limoo.Store
 import app.limoo.core.ErrorHints
 import app.limoo.core.GeoManager
@@ -171,7 +174,7 @@ fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: ()
         val s = sel ?: return
         testing = true
         realMs = Latency.real(ctx, s, st, st.testUrl).takeIf { it > 0 }
-            ?: Latency.tcp(s, st.pingTimeoutMs).takeIf { it > 0 }
+            ?: Latency.tcp(s, st.pingTimeoutMs, st.ipv6).takeIf { it > 0 }
         testing = false
     }
     LaunchedEffect(on, sel?.id) { realMs = null; if (on) { delay(1500); runTest() } }
@@ -198,13 +201,28 @@ fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: ()
             Modifier.fillMaxWidth().padding(top = Space.standard, bottom = Space.compact),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Limoo", style = NType.display, color = n.text)
+            Text("Armio", style = NType.display, color = n.text)
             Spacer(Modifier.weight(1f))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (st.privacyMode) NLabel("Private")
                 SignalDot(on || state == State.Connecting, Modifier.size(5.dp))
             }
         }
+
+        // ---- service announcement from the remote config (dismissible per message) ----
+        val remoteCfg by store.remoteCfg.collectAsState()
+        var dismissedMsg by remember { mutableStateOf("") }
+        val announcement = remoteCfg?.message?.takeIf { it.isNotBlank() }
+        if (announcement != null && dismissedMsg != announcement) {
+            NCard(Modifier.fillMaxWidth().padding(bottom = Space.compact)) {
+                Row(Modifier.padding(Space.standard), verticalAlignment = Alignment.CenterVertically) {
+                    Text(announcement, style = NType.body, color = n.text, modifier = Modifier.weight(1f))
+                    Spacer(Modifier.width(Space.small))
+                    NButton("OK", { dismissedMsg = announcement }, compact = true)
+                }
+            }
+        }
+
         Ticks()
 
         // ---- hero ----
@@ -353,6 +371,12 @@ fun HomeScreen(store: Store, state: State, error: String?, a: Actions, onAdd: ()
                             "${sub.name}  -  ${servers.count { it.subId == sub.id }} servers",
                             sub.upload, sub.download, sub.total, sub.expire,
                         )
+                        if (Armio.SERVICE_MODE) {
+                            Spacer(Modifier.height(Space.small))
+                            NButton("RENEW / EXTEND", {
+                                runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(Armio.SUPPORT_URL)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                            }, Modifier.fillMaxWidth(), primary = true)
+                        }
                     }
                 }
             }

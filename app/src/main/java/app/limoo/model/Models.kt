@@ -22,6 +22,8 @@ data class Server(
      */
     val tcpMs: Long = -1,
     val fav: Boolean = false, val lastUsed: Long = 0, val subId: String = "",
+    /** When pingMs/tcpMs were measured (epoch ms); 0 = never. Keeps stale results visible as stale. */
+    val pingedAt: Long = 0,
 )
 
 @Serializable
@@ -31,6 +33,8 @@ data class Subscription(
     val updatedAt: Long = 0,                                        // epoch seconds
     val upload: Long = 0, val download: Long = 0, val total: Long = 0, val expire: Long = 0,   // from subscription-userinfo
     val autoUpdate: Boolean = true, val error: String = "",
+    /** Config lines the last fetch had to skip: protocols this app cannot import yet (TUIC, WireGuard, MTProto...). */
+    val skipped: Int = 0,
 )
 
 /**
@@ -95,7 +99,7 @@ data class AppSettings(
     // routing data + testing
     val geoSource: String = "chocolate4u", val geoAutoUpdate: Boolean = true,
     // ui / behaviour
-    val accent: String = "mono", val haptics: Boolean = true, val privacyMode: Boolean = false,
+    val accent: String = "blue", val haptics: Boolean = true, val privacyMode: Boolean = false,
     val autoConnect: Boolean = false, val clipboardWatch: Boolean = true, val sortBy: String = "manual",
     val testUrl: String = "https://www.gstatic.com/generate_204", val autoSelect: Boolean = false,
     // true = use the core's own delay probe instead of a plain TCP connect (slower, but real RTT)

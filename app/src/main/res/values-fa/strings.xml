@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="channel_name">VPN لیمو</string>
+    <string name="channel_name">VPN آرمیو</string>
     <string name="notif_connecting">در حال اتصال</string>
     <string name="notif_disconnect">قطع اتصال</string>
     <string name="notif_retry">اتصال دوباره</string>
@@ -16,5 +16,5 @@
     <string name="widget_session">این نشست</string>
     <string name="widget_week">۷ روز</string>
     <string name="widget_today">امروز</string>
-    <string name="app_name">لیمو</string>
+    <string name="app_name">آرمیو</string>
 </resources>

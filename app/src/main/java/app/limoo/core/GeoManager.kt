@@ -60,7 +60,7 @@ object GeoManager {
     }
 
     private fun open(url: String) = (URL(url).openConnection() as HttpURLConnection).apply {
-        connectTimeout = 15_000; readTimeout = 30_000; setRequestProperty("User-Agent", "Limoo/0.2")
+        connectTimeout = 15_000; readTimeout = 30_000; setRequestProperty("User-Agent", "Armio/1.0")
     }
 
     private fun fetch(url: String, out: File, onPercent: (Int) -> Unit) {

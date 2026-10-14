@@ -48,6 +48,7 @@ class LimooApp : Application() {
             prev?.uncaughtException(thread, err)
         }
         store = Store(this)
+        store.refreshRemoteCfg()
         app.limoo.widget.WidgetSync.start(this)
         // (Re)arm the periodic subscription refresh against the stored interval.
         app.limoo.core.SubUpdateScheduler.apply(applicationContext, store.settings.value)
@@ -88,6 +89,23 @@ class Store(ctx: Context) {
      */
     val fetchingSubs = MutableStateFlow(0)
     val fetchingLabel = MutableStateFlow("")
+
+    /**
+     * Last known Armio service config (kill switch / minimum version / announcement), cached in
+     * prefs so a launch with no network still applies the last state the server published.
+     */
+    val remoteCfg = MutableStateFlow(
+        runCatching { json.decodeFromString<app.limoo.core.RemoteCfg>(sp.getString("remoteCfg", "null")!!) }.getOrNull()
+    )
+
+    /** Fetches the service config in the background; a failed fetch keeps the cached copy. */
+    fun refreshRemoteCfg() {
+        ioScope.launch {
+            val cfg = app.limoo.core.RemoteConfig.fetch(Armio.CONFIG_URL) ?: return@launch
+            remoteCfg.value = cfg
+            runCatching { sp.edit().putString("remoteCfg", json.encodeToString(app.limoo.core.RemoteCfg.serializer(), cfg)).apply() }
+        }
+    }
 
     /** v0.1 stored subscriptions as a plain URL list; v0.2 stores objects. Accept both. */
     private fun loadSubs(): List<Subscription> {
@@ -181,12 +199,17 @@ class Store(ctx: Context) {
                 val sem = Semaphore(if (real) 2 else 8)
                 targets.map { s ->
                     async {
-                        // Always measure TCP, even in real mode. Real mode's own fallback swallowed the
-                        // distinction between "probe unsupported" and "timed out", so a server that the
-                        // core probe could not judge was recorded as a hard 0 - and a hard 0 is what
-                        // removeDead() deletes on. Measuring both keeps that decision honest.
+                        // TCP is measured alongside real mode whenever the real probe did not produce
+                        // a positive result: removeDead() needs the TCP signal to stay honest (it
+                        // deletes only when BOTH genuinely timed out). When the real probe already
+                        // proved the server alive, a second TCP run would only slow the sweep.
                         val realMs = if (real) sem.withPermit { pingReal(s, st) } else Latency.UNKNOWN
-                        val tcpMs = sem.withPermit { Latency.tcp(s, st.pingTimeoutMs) }
+                        val tcpMs = if (real && realMs > 0) s.tcpMs else sem.withPermit {
+                            val t1 = Latency.tcp(s, st.pingTimeoutMs, st.ipv6)
+                            // Two samples, keep the min: a single jittered connect used to poison
+                            // both the ranking and auto-select.
+                            if (t1 > 0) minOf(t1, Latency.tcp(s, st.pingTimeoutMs, st.ipv6)) else t1
+                        }
                         s.id to (realMs to tcpMs)
                     }
                 }.awaitAll()
@@ -195,12 +218,21 @@ class Store(ctx: Context) {
             servers.update { l ->
                 l.map { s ->
                     byId[s.id]?.let { (realMs, tcpMs) ->
-                        // Prefer the real measurement; fall back to TCP only when the probe could not
-                        // run. UNKNOWN is preserved as UNKNOWN so the UI can say "not measured" instead
-                        // of drawing a dead server.
+                        // Prefer the real measurement. A real TIMEOUT is authoritative - the tunnel
+                        // test ran and the server did not answer - so it is NOT dressed up with the
+                        // TCP number (a listening socket says nothing about a Reality/WS handshake,
+                        // and for UDP protocols it says nothing at all). TCP fills in only when the
+                        // probe could not run (UNKNOWN), which is preserved as UNKNOWN when TCP has
+                        // no answer either, so the UI can say "not measured" instead of drawing a
+                        // dead server.
                         s.copy(
-                            pingMs = if (realMs > 0) realMs else tcpMs,
+                            pingMs = when {
+                                realMs > 0 -> realMs
+                                realMs == Latency.TIMEOUT -> Latency.TIMEOUT
+                                else -> tcpMs
+                            },
                             tcpMs = tcpMs,
+                            pingedAt = System.currentTimeMillis(),
                         )
                     } ?: s
                 }
@@ -233,15 +265,16 @@ class Store(ctx: Context) {
     }
 
     // ---------- subscriptions ----------
-    private class Fetched(val servers: List<Server>, val title: String?, val upload: Long, val download: Long, val total: Long, val expire: Long)
+    private class Fetched(val servers: List<Server>, val title: String?, val upload: Long, val download: Long, val total: Long, val expire: Long, val skipped: Int = 0)
 
     private suspend fun fetch(url: String): Fetched = withContext(Dispatchers.IO) {
         val c = (URL(url).openConnection() as HttpURLConnection).apply {
-            setRequestProperty("User-Agent", "Limoo/0.6"); connectTimeout = 15_000; readTimeout = 20_000
+            setRequestProperty("User-Agent", "Armio/1.0"); connectTimeout = 15_000; readTimeout = 20_000
         }
         try {
             if (c.responseCode !in 200..299) throw Exception("HTTP ${c.responseCode}")
-            val list = LinkParser.parseMany(c.inputStream.bufferedReader().readText())
+            val body = c.inputStream.bufferedReader().readText()
+            val list = LinkParser.parseMany(body)
             if (list.isEmpty()) throw Exception("No servers found in subscription")
             val info = (c.getHeaderField("subscription-userinfo") ?: "").split(';').mapNotNull { p ->
                 p.trim().split('=').takeIf { it.size == 2 }?.let { it[0].trim().lowercase() to (it[1].trim().toLongOrNull() ?: 0L) }
@@ -249,7 +282,7 @@ class Store(ctx: Context) {
             val title = c.getHeaderField("profile-title")?.let { t ->
                 if (t.startsWith("base64:")) runCatching { String(android.util.Base64.decode(t.removePrefix("base64:"), android.util.Base64.DEFAULT)) }.getOrNull() else t
             }?.takeIf { it.isNotBlank() }
-            Fetched(list, title, info["upload"] ?: 0L, info["download"] ?: 0L, info["total"] ?: 0L, info["expire"] ?: 0L)
+            Fetched(list, title, info["upload"] ?: 0L, info["download"] ?: 0L, info["total"] ?: 0L, info["expire"] ?: 0L, LinkParser.countUnsupported(body))
         } finally {
             c.disconnect()
         }
@@ -258,6 +291,10 @@ class Store(ctx: Context) {
     /** Adds the subscription and fetches it. The subscription is kept even if the first fetch fails (error is shown, retry works). */
     suspend fun addSubscription(url: String, name: String = ""): Int {
         val existing = subs.value.firstOrNull { it.url == url }
+        // Armio service build: exactly ONE subscription - the customer's own. The UI hides the
+        // add path once one exists; this is the same rule at the store, so no caller (import
+        // preview, deep link, a future caller) can sneak a second one in.
+        if (Armio.SERVICE_MODE && existing == null && subs.value.size >= Armio.MAX_SUBSCRIPTIONS) return 0
         val sub = existing ?: Subscription(name = name.ifBlank { hostOf(url) }, url = url)
         if (existing == null) { subs.update { it + sub }; persist() }
         return refreshSub(sub.id)
@@ -281,11 +318,11 @@ class Store(ctx: Context) {
             val old = servers.value.associateBy { key(it) }
             val merged = r.servers.map { n ->
                 val o = old[key(n)]
-                (if (o != null) n.copy(id = o.id, fav = o.fav, pingMs = o.pingMs, lastUsed = o.lastUsed) else n).copy(subId = id, group = name)
+                (if (o != null) n.copy(id = o.id, fav = o.fav, pingMs = o.pingMs, tcpMs = o.tcpMs, pingedAt = o.pingedAt, lastUsed = o.lastUsed) else n).copy(subId = id, group = name)
             }
             val keys = merged.map { key(it) }.toHashSet()
             servers.update { l -> l.filter { it.subId != id && key(it) !in keys } + merged }
-            subs.update { l -> l.map { if (it.id == id) it.copy(name = name, updatedAt = System.currentTimeMillis() / 1000, upload = r.upload, download = r.download, total = r.total, expire = r.expire, error = "") else it } }
+            subs.update { l -> l.map { if (it.id == id) it.copy(name = name, updatedAt = System.currentTimeMillis() / 1000, upload = r.upload, download = r.download, total = r.total, expire = r.expire, error = "", skipped = r.skipped) else it } }
             persist(); return merged.size
         } catch (e: Exception) {
             subs.update { l -> l.map { if (it.id == id) it.copy(error = e.message ?: "Failed") else it } }; persist(); throw e

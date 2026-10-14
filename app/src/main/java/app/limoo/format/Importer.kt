@@ -16,6 +16,8 @@ data class ImportPreview(
     val settings: AppSettings? = null, val needsPassword: Boolean = false, val raw: String = "",
     val appearance: LimooAppearance? = null, val group: String = "", val tags: List<String> = emptyList(),
     val spec: Int = 1,
+    /** Lines that carried protocols this app cannot import yet - shown in the preview, never silently dropped. */
+    val skippedUnsupported: Int = 0,
 )
 
 object Importer {
@@ -33,6 +35,6 @@ object Importer {
         } catch (e: LimooFile.NeedsPassword) { return ImportPreview(source, needsPassword = true, raw = t) }
         if ((t.startsWith("http://") || t.startsWith("https://")) && t.lines().size == 1) return ImportPreview(source, subUrls = listOf(t), raw = t)
         val servers = LinkParser.parseMany(t)
-        return if (servers.isEmpty()) null else ImportPreview(source, servers = servers, raw = t)
+        return if (servers.isEmpty()) null else ImportPreview(source, servers = servers, raw = t, skippedUnsupported = LinkParser.countUnsupported(t))
     }
 }
