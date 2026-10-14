@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="channel_name">Limoo VPN</string>
+    <string name="channel_name">Armio VPN</string>
     <string name="notif_connecting">Connecting</string>
     <string name="notif_disconnect">Disconnect</string>
     <string name="notif_retry">Reconnect</string>
@@ -16,5 +16,5 @@
     <string name="widget_session">Session</string>
     <string name="widget_week">7 days</string>
     <string name="widget_today">Today</string>
-    <string name="app_name">Limoo</string>
+    <string name="app_name">Armio</string>
 </resources>

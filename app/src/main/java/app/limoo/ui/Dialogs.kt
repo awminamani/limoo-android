@@ -135,7 +135,7 @@ fun QrDialog(server: Server, onDismiss: () -> Unit) {
                 if (bmp != null) Image(bmp.asImageBitmap(), "QR code", Modifier.size(240.dp).clip(RoundedCornerShape(20.dp)).background(Color.White).padding(10.dp))
                 else Text("Too long for a QR code. Share it as a file instead.", style = NType.body, color = n.dim)
                 Row(Modifier.fillMaxWidth().clickable { asLimoo = !asLimoo }.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(".limoo link instead of standard", style = NType.body, color = n.text, modifier = Modifier.weight(1f)); NSwitch(asLimoo) { asLimoo = it }
+                    Text("Armio link instead of standard", style = NType.body, color = n.text, modifier = Modifier.weight(1f)); NSwitch(asLimoo) { asLimoo = it }
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     NButton("COPY", { clip.setText(AnnotatedString(text)); Ui.say("COPIED") }, Modifier.weight(1f))

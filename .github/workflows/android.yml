@@ -158,14 +158,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: limoo-debug-apk
+          name: armio-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: warn
 
       - name: Upload APKs as workflow artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: limoo-apk
+          name: armio-apk
           path: app/build/outputs/apk/**/*.apk
           if-no-files-found: warn
 
@@ -189,11 +189,11 @@ jobs:
           mkdir -p dist
           for f in app/build/outputs/apk/release/*.apk; do
             [ -e "$f" ] || continue
-            cp "$f" "dist/Limoo-${VER_NAME}-release.apk"
+            cp "$f" "dist/Armio-${VER_NAME}-release.apk"
           done
           for f in app/build/outputs/apk/debug/*.apk; do
             [ -e "$f" ] || continue
-            cp "$f" "dist/Limoo-${VER_NAME}-debug.apk"
+            cp "$f" "dist/Armio-${VER_NAME}-debug.apk"
           done
 
           NOTES=$(git log -1 --pretty=%B)
@@ -210,7 +210,7 @@ jobs:
             echo "Updated existing release $TAG"
           else
             gh release create "$TAG" dist/*.apk dist/SHA256SUMS.txt \
-              --title "Limoo ${VER_NAME}" \
+              --title "Armio ${VER_NAME}" \
               --notes "$NOTES"
             echo "Created release $TAG"
           fi

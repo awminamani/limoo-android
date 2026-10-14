@@ -29,16 +29,16 @@ data class NColors(
 
 /** Classic dark: OLED-black canvas, three surface steps, two line weights, three text steps, one signal. */
 val DarkN = NColors(
-    bg = Color(0xFF0A0A0A),
-    surface = Color(0xFF111111),
-    surface2 = Color(0xFF171717),
-    line = Color(0xFF252525),
-    lineStrong = Color(0xFF373737),
+    bg = Color(0xFF01030F),
+    surface = Color(0xFF0A1128),
+    surface2 = Color(0xFF0E1B3D),
+    line = Color(0xFF1B2B52),
+    lineStrong = Color(0xFF2A3E6E),
     text = Color(0xFFF2F2F2),
-    dim = Color(0xFFA0A0A0),
-    muted = Color(0xFF6B6B6B),
-    onText = Color(0xFF000000),
-    accent = Color(0xFFD71920),
+    dim = Color(0xFF9FB4D8),
+    muted = Color(0xFF5F7396),
+    onText = Color(0xFFFFFFFF),
+    accent = Color(0xFF0275F2),
     dark = true,
 )
 
@@ -53,7 +53,7 @@ val LightN = NColors(
     dim = Color(0xFF6B6B6B),
     muted = Color(0xFF9A9A96),
     onText = Color(0xFFFFFFFF),
-    accent = Color(0xFFC8102E),
+    accent = Color(0xFF0275F2),
     dark = false,
 )
 

@@ -5,6 +5,7 @@ import app.limoo.model.AppSettings
 import app.limoo.model.Server
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.net.*
 
 object Latency {
@@ -22,23 +23,63 @@ object Latency {
     const val UNKNOWN = -1L
     const val TIMEOUT = 0L
 
-    /** TCP connect time in ms (DNS excluded). [TIMEOUT] on failure, never [UNKNOWN]. */
-    suspend fun tcp(s: Server, timeoutMs: Int = 4000): Long = withContext(Dispatchers.IO) {
-        try {
-            val addr = InetSocketAddress(InetAddress.getByName(s.host), s.port)
-            val t0 = System.nanoTime()
-            Socket().use { it.connect(addr, timeoutMs) }
-            ((System.nanoTime() - t0) / 1_000_000).coerceAtLeast(1)
-        } catch (e: Exception) { TIMEOUT }
+    /**
+     * TCP connect time in ms (DNS excluded). [TIMEOUT] when the server was resolved but did not
+     * answer; [UNKNOWN] when the name itself could not be resolved - a resolver failure on the
+     * phone's network says nothing about the server, and recording it as TIMEOUT used to mark
+     * healthy servers dead whenever DNS hiccupped.
+     *
+     * All resolved addresses are considered (at most two): a single AAAA answer on a broken-IPv6
+     * path used to burn the whole timeout and report a live server dead. When IPv6 is off in
+     * settings, IPv4 answers are tried first.
+     */
+    suspend fun tcp(s: Server, timeoutMs: Int = 4000, ipv6: Boolean = true): Long = withContext(Dispatchers.IO) {
+        val addrs = try {
+            InetAddress.getAllByName(s.host).toList()
+        } catch (e: Exception) {
+            return@withContext UNKNOWN
+        }
+        if (addrs.isEmpty()) return@withContext UNKNOWN
+        val ordered = if (ipv6) addrs else addrs.sortedBy { it is Inet6Address }
+        for (a in ordered.take(2)) {
+            try {
+                val t0 = System.nanoTime()
+                Socket().use { it.connect(InetSocketAddress(a, s.port), timeoutMs) }
+                return@withContext ((System.nanoTime() - t0) / 1_000_000).coerceAtLeast(1)
+            } catch (e: Exception) {
+                // fall through to the next address
+            }
+        }
+        TIMEOUT
     }
+
+    const val DEFAULT_TEST_URL = "https://www.gstatic.com/generate_204"
 
     /**
      * Real end-to-end delay for ONE server, measured by the core itself: spins a throwaway core with just
      * this outbound and runs Xray's own observatory probe. Unlike [tcp] this includes TLS handshake and
-     * the server's real RTT, which is what a user means by "ping". -1 = failed/unsupported.
+     * the server's real RTT, which is what a user means by "ping".
+     *
+     * Bounded by twice the user's ping timeout (AppSettings documents the in-tunnel test at 2x): the
+     * core call carries no timeout of its own, and without this bound one dead server stalled the
+     * whole sweep for the AAR's internal duration - with concurrency 2, a list with a few dead
+     * servers took minutes and looked like the ping feature was simply broken. The blocking core
+     * call itself cannot be interrupted, but the coroutine, the semaphore and the UI are released.
+     *
+     * Returns [UNKNOWN] only when the probe cannot run at all (core without measureOutboundDelay);
+     * a probe that ran and failed - including by timeout - is [TIMEOUT].
      */
     suspend fun real(ctx: Context, s: Server, st: AppSettings, url: String): Long = withContext(Dispatchers.IO) {
-        CoreDelay.measure(ctx, XrayConfigBuilder.buildProbe(s, st), url)
+        if (!CoreDelay.supported(ctx)) return@withContext UNKNOWN
+        val u = url.takeIf { it.startsWith("http://") || it.startsWith("https://") } ?: DEFAULT_TEST_URL
+        val ms = try {
+            withTimeoutOrNull(st.pingTimeoutMs.toLong() * 2) {
+                CoreDelay.measure(ctx, XrayConfigBuilder.buildProbe(s, st), u)
+            }
+        } catch (e: Exception) {
+            null
+        } ?: return@withContext TIMEOUT
+        if (ms > 0) ms else TIMEOUT
     }
 
     /** Real end-to-end delay: HTTP request through the running core's local SOCKS inbound. 0 = failed. */

@@ -216,7 +216,7 @@ class LimooVpnService : VpnService() {
                 val st = store.settings.value
                 // Auto-select spins up a core probe per server. On battery saver that is far too expensive to
                 // do silently on every connect, so it is skipped unless the user asked for it explicitly.
-                if (st.autoSelect && !st.batterySaver) store.autoSelectBest()
+                if (st.autoSelect && !st.batterySaver) store.autoSelectBest(real = st.realPing)
                 val server = store.selected() ?: throw IllegalStateException("No server selected")
                 // Validate BEFORE touching geo data, the tun, or the core. Xray rejects an unbuildable
                 // config with a sentence about JSON paths, and until now that was the only signal a user

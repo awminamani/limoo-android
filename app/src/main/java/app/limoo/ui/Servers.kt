@@ -1,5 +1,7 @@
 package app.limoo.ui
 
+import app.limoo.Armio
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import androidx.activity.compose.BackHandler
@@ -192,7 +194,7 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit, busy: String? = n
             ) {
                 NButton("Favorite", { store.toggleFav(picked) }, compact = true)
                 NButton("Ping", { val ids = picked; scope.launch { store.pingAll(ids, real = st.realPing) } }, compact = true)
-                NButton("Share", { shareList = servers.filter { it.id in picked } }, compact = true)
+                if (!Armio.SERVICE_MODE) NButton("Share", { shareList = servers.filter { it.id in picked } }, compact = true)
                 NButton("Group", { groupFor = picked }, compact = true)
                 NButton("DELETE", { deleteWithUndo(picked); picked = emptySet() }, danger = true, compact = true)
             }
@@ -207,12 +209,17 @@ fun ServersScreen(store: Store, a: Actions, onAdd: () -> Unit, busy: String? = n
     rowMenu?.let { s ->
         NSheet({ rowMenu = null }) {
             NLabel(s.name, Modifier.padding(bottom = 6.dp))
-            SheetRow("Edit") { rowMenu = null; editing = s }
-            SheetRow("Duplicate") { rowMenu = null; store.duplicate(s.id) }
+            if (!Armio.SERVICE_MODE) {
+                SheetRow("Edit") { rowMenu = null; editing = s }
+                SheetRow("Duplicate") { rowMenu = null; store.duplicate(s.id) }
+            }
             SheetRow(if (s.fav) "Remove favorite" else "Add to favorites") { rowMenu = null; store.toggleFav(setOf(s.id)) }
-            SheetRow("QR code") { rowMenu = null; qr = s }
-            SheetRow("Copy link") { rowMenu = null; copyLink(s) }
-            SheetRow("Share as .limoo") { rowMenu = null; shareList = listOf(s) }
+            if (!Armio.SERVICE_MODE) {
+                // Nothing leaves the app in the customer build: no QR, no copied link, no share.
+                SheetRow("QR code") { rowMenu = null; qr = s }
+                SheetRow("Copy link") { rowMenu = null; copyLink(s) }
+                SheetRow("Share as Armio file") { rowMenu = null; shareList = listOf(s) }
+            }
             SheetRow(if (st.realPing) "Test real delay" else "Test TCP latency") { rowMenu = null; scope.launch { store.pingAll(listOf(s.id), real = st.realPing) } }
             SheetRow("Move to group") { rowMenu = null; groupFor = setOf(s.id) }
             SheetRow("Delete", danger = true) { rowMenu = null; deleteWithUndo(setOf(s.id)) }

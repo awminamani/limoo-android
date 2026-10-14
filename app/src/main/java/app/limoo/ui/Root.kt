@@ -18,8 +18,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.platform.LocalContext
+import app.limoo.Armio
 import app.limoo.Store
 import app.limoo.core.LimooVpnService.State
+import app.limoo.core.RemoteCfg
 import app.limoo.format.ImportPreview
 import app.limoo.model.Server
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -118,6 +124,13 @@ fun LimooRoot(
         // Drawn above everything, and only while a request is actually in flight. Tap-to-hide dismisses the
         // animation without touching the job. See SubFetchOverlay for why it is driven from the store.
         SubFetchOverlay(store)
+
+        // ---- Armio service gate (remote config): drawn last, over everything, when the service
+        // is switched off or this build is older than the server's minimum version.
+        val remoteCfg by store.remoteCfg.collectAsState()
+        val gateCtx = LocalContext.current
+        val myVersion = remember { runCatching { gateCtx.packageManager.getPackageInfo(gateCtx.packageName, 0).versionCode }.getOrDefault(Int.MAX_VALUE) }
+        remoteCfg?.takeIf { cfg -> !cfg.enabled || myVersion < cfg.minVersion }?.let { cfg -> ServiceGate(cfg) }
     }
 
     if (addOpen) {
@@ -127,6 +140,42 @@ fun LimooRoot(
     if (subForm) SubFormSheet(null, { subForm = false }) { name, url, _ -> a.addSub(url, name) }
     if (manual) ServerEditor(null, { store.upsert(it); manual = false; Ui.say("SERVER ADDED") }, { manual = false })
     preview?.let { ImportSheet(it, existingKeys, a, onDismissPreview, busy != null) }
+}
+
+/**
+ * Full-screen service gate from the remote config: the service is off, or this build is older
+ * than the minimum the server allows. Opaque and touch-consuming - nothing underneath is
+ * reachable while it is up. A tunnel that is already running is NOT torn down; the gate blocks
+ * the UI only, which is all a maintenance window or a forced update needs.
+ */
+@Composable
+private fun ServiceGate(cfg: RemoteCfg) {
+    val n = LocalN.current
+    val ctx = LocalContext.current
+    fun open(url: String) {
+        runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+    }
+    Box(
+        Modifier.fillMaxSize().background(n.bg)
+            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { },
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(Modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Armio", style = NType.display, color = n.text)
+            Spacer(Modifier.height(Space.standard))
+            Text(
+                cfg.message.ifBlank { "Service is temporarily unavailable." },
+                style = NType.body, color = n.dim,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+            if (cfg.apkUrl.isNotBlank()) {
+                Spacer(Modifier.height(Space.section))
+                NButton("UPDATE", { open(cfg.apkUrl) }, Modifier.fillMaxWidth(), primary = true)
+            }
+            Spacer(Modifier.height(Space.small))
+            NButton("SUPPORT", { open(Armio.SUPPORT_URL) }, Modifier.fillMaxWidth())
+        }
+    }
 }
 
 /**

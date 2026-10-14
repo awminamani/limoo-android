@@ -1,5 +1,7 @@
 package app.limoo.ui
 
+import app.limoo.Armio
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -243,18 +245,20 @@ fun SettingsScreen(store: Store, a: Actions) {
                 NLabel("BLUR SOFTENS THE IMAGE - ONLY THE DIM SLIDER IS FREE", Modifier.padding(horizontal = Space.card))
             }
             Text(
-                "The photo stays on your device. Limoo stores only the reference, never a copy, and the gallery picker asks for no storage permission. A shared .limoo file carries the dim and blur but never your image.",
+                "The photo stays on your device. Armio stores only the reference, never a copy, and the gallery picker asks for no storage permission. A shared Armio file carries the dim and blur but never your image.",
                 style = NType.bodySmall, color = n.muted, modifier = Modifier.padding(vertical = Space.compact),
             )
         }
         else -> Page("BACKUP", { page = "" }) {
             Group {
-                NRow("Export backup", "servers · subscriptions · settings · look", a.exportBackup) { Chevron() }; NDivider()
-                NRow("Restore from file", "opens the import preview", a.pickFile) { Chevron() }; NDivider()
+                if (!Armio.SERVICE_MODE) {
+                    NRow("Export backup", "servers · subscriptions · settings · look", a.exportBackup) { Chevron() }; NDivider()
+                    NRow("Restore from file", "opens the import preview", a.pickFile) { Chevron() }; NDivider()
+                }
                 NRow("Reset settings", "servers are kept", { confirmReset = true }) { Chevron() }
             }
             Group {
-                NRow("Limoo", "version " + LocalContext.current.let { c -> runCatching { c.packageManager.getPackageInfo(c.packageName, 0).versionName }.getOrNull() ?: "?" }) {}; NDivider()
+                NRow("Armio", "version " + LocalContext.current.let { c -> runCatching { c.packageManager.getPackageInfo(c.packageName, 0).versionName }.getOrNull() ?: "?" }) {}; NDivider()
                 NRow("Core", "Xray via libv2ray") {}; NDivider()
                 NRow("File format", ".limoo v2 - reads v1") {}
             }

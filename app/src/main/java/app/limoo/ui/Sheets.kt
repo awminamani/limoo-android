@@ -1,5 +1,7 @@
 package app.limoo.ui
 
+import app.limoo.Armio
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -33,11 +35,16 @@ fun AddSheet(peek: ImportPreview?, onDismiss: () -> Unit, a: Actions, onSub: () 
     }
     NSheet(onDismiss) {
         NLabel("ADD", Modifier.padding(bottom = 6.dp))
-        SheetRow("Paste from clipboard", found, highlight = peek != null) { onDismiss(); a.pasteImport() }
-        SheetRow("Scan QR code", "VLESS - VMESS - TROJAN - SS - LIMOO") { onDismiss(); a.scan() }
-        SheetRow("Import file", ".LIMOO OR TEXT") { onDismiss(); a.pickFile() }
-        SheetRow("Subscription link", "AUTO-UPDATING LIST") { onDismiss(); onSub() }
-        SheetRow("Enter manually") { onDismiss(); onManual() }
+        if (Armio.SERVICE_MODE) {
+            // Customer build: the ONLY way in is the personal subscription link from the Armio bot.
+            SheetRow("Subscription link", "YOUR PERSONAL ARMIO LINK") { onDismiss(); onSub() }
+        } else {
+            SheetRow("Paste from clipboard", found, highlight = peek != null) { onDismiss(); a.pasteImport() }
+            SheetRow("Scan QR code", "VLESS - VMESS - TROJAN - SS - LIMOO") { onDismiss(); a.scan() }
+            SheetRow("Import file", ".LIMOO OR TEXT") { onDismiss(); a.pickFile() }
+            SheetRow("Subscription link", "AUTO-UPDATING LIST") { onDismiss(); onSub() }
+            SheetRow("Enter manually") { onDismiss(); onManual() }
+        }
     }
 }
 
@@ -80,10 +87,10 @@ fun SubsSheet(store: Store, onDismiss: () -> Unit) {
     NSheet(onDismiss) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             NLabel("SUBSCRIPTIONS", Modifier.weight(1f))
-            NButton("ADD", { adding = true }, compact = true)
+            if (!Armio.SERVICE_MODE || subs.isEmpty()) NButton("ADD", { adding = true }, compact = true)
         }
         Spacer(Modifier.height(10.dp))
-        if (subs.isEmpty()) Text("No subscriptions yet. Add a link and Limoo keeps the list fresh.", style = NType.body, color = n.dim, modifier = Modifier.padding(vertical = 20.dp))
+        if (subs.isEmpty()) Text("No subscriptions yet. Add a link and Armio keeps the list fresh.", style = NType.body, color = n.dim, modifier = Modifier.padding(vertical = 20.dp))
         LazyColumn(Modifier.heightIn(max = 460.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(subs, key = { it.id }) { s ->
                 NCard(Modifier.fillMaxWidth()) {
@@ -95,6 +102,7 @@ fun SubsSheet(store: Store, onDismiss: () -> Unit) {
                             NLabel("${fmtBytes(s.upload + s.download)} / ${fmtBytes(s.total)}", Modifier.padding(top = 6.dp))
                         }
                         if (s.error.isNotEmpty()) NLabel(s.error, Modifier.padding(top = 6.dp), color = n.accent)
+                        if (s.skipped > 0) NLabel("${s.skipped} CONFIGS SKIPPED - PROTOCOL NOT SUPPORTED IN THIS APP YET (TUIC / WIREGUARD / MTPROTO)", Modifier.padding(top = 6.dp), color = n.accent)
                         Row(Modifier.padding(top = 12.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             NButton(if (s.id in busy) "..." else "UPDATE", { refresh(s) }, enabled = s.id !in busy, compact = true)
                             NButton("EDIT", { form = s }, compact = true)
@@ -150,6 +158,7 @@ fun ImportSheet(p: ImportPreview, existingKeys: Set<String>, a: Actions, onDismi
             NLabel("IMPORT - ${p.source}")
             Text(p.title.ifBlank { if (p.servers.isNotEmpty()) "${p.servers.size} server${if (p.servers.size == 1) "" else "s"}" else "Subscription" }, style = NType.title, color = n.text, modifier = Modifier.padding(top = 8.dp))
             if (p.note.isNotBlank()) Text(p.note, style = NType.body, color = n.dim, modifier = Modifier.padding(top = 4.dp))
+            if (p.skippedUnsupported > 0) NLabel("${p.skippedUnsupported} CONFIGS SKIPPED - PROTOCOL NOT SUPPORTED IN THIS APP YET (TUIC / WIREGUARD / MTPROTO)", Modifier.padding(top = 6.dp), color = n.accent)
             if (p.expires > 0) NLabel(if (expired) "THIS CONFIG HAS EXPIRED" else "VALID UNTIL ${java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(p.expires * 1000))}", Modifier.padding(top = 6.dp), color = if (expired) n.accent else n.dim)
 
             p.subUrls.forEach { u ->
@@ -199,7 +208,7 @@ fun ImportSheet(p: ImportPreview, existingKeys: Set<String>, a: Actions, onDismi
 @Composable
 fun ShareSheet(servers: List<Server>, onDismiss: () -> Unit, a: Actions) {
     val n = LocalN.current
-    var name by remember { mutableStateOf(if (servers.size == 1) servers[0].name else "Limoo servers") }
+    var name by remember { mutableStateOf(if (servers.size == 1) servers[0].name else "Armio servers") }
     var note by remember { mutableStateOf("") }; var pw by remember { mutableStateOf("") }; var days by remember { mutableStateOf(0) }
     // What travels with the file. Everything is on by default because the sender chose it; each one is a
     // single tap to leave out, which is the whole point of showing them.
@@ -233,11 +242,11 @@ fun ShareSheet(servers: List<Server>, onDismiss: () -> Unit, a: Actions) {
             highlight = true,
         ) { onDismiss(); a.copyStandardLinks(servers) }
         SheetRow(
-            ".limoo link",
-            "limoo:// - keeps notes and expiry",
+            "Armio link",
+            "keeps notes and expiry",
         ) { onDismiss(); a.share(servers, name, note, days, pw.ifEmpty { null }, true, withLook, withGroup) }
         SheetRow(
-            ".limoo file",
+            "Armio file",
             "encrypted with the password above",
         ) { onDismiss(); a.share(servers, name, note, days, pw.ifEmpty { null }, false, withLook, withGroup) }
     }

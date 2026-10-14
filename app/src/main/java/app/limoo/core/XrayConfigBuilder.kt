@@ -64,6 +64,9 @@ object XrayConfigBuilder {
      */
     fun buildProbe(s: Server, st: AppSettings): String = buildJsonObject {
         put("log", buildJsonObject { put("loglevel", "none") })
+        // Same DNS as production: without it the probe resolved through plain system DNS, so on a
+        // poisoned-DNS network the probe failed where the real connection (DoH) succeeded.
+        put("dns", dns(st))
         put("inbounds", buildJsonArray { })
         put("outbounds", outbounds(s, st, forProbe = true))
     }.toString()
